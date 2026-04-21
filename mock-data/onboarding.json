@@ -1,0 +1,28 @@
+{
+  "id": "onboarding",
+  "name": "Onboarding",
+  "strings": [
+    {
+      "id": "onboarding.welcome.title",
+      "area": "welcome",
+      "context": "First screen hero headline",
+      "status": "approved",
+      "en": "Welcome aboard"
+    },
+    {
+      "id": "onboarding.welcome.subtitle",
+      "area": "welcome",
+      "context": "Supporting text under welcome title",
+      "status": "approved",
+      "en": "A few quick steps and you're all set."
+    },
+    {
+      "id": "onboarding.cta.start",
+      "area": "welcome",
+      "context": "Primary CTA to begin flow. Under 14 chars.",
+      "charLimit": 14,
+      "status": "approved",
+      "en": "Get started"
+    }
+  ]
+}

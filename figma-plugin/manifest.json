@@ -1,0 +1,14 @@
+{
+  "name": "Copy Sync",
+  "id": "copy-sync-local-dev",
+  "api": "1.0.0",
+  "main": "../dist/main.js",
+  "ui": "../dist/ui.html",
+  "editorType": ["figma"],
+  "capabilities": [],
+  "permissions": [],
+  "networkAccess": {
+    "allowedDomains": ["http://localhost:3737"],
+    "reasoning": "Copy Sync plugin fetches UX copy from the local mock-data server during development. Production build will point at the internal Copy Sync service."
+  }
+}

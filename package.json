@@ -1,0 +1,25 @@
+{
+  "name": "copy-sync",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Sync UI copy from a source of truth into Figma designs (and later, web apps).",
+  "scripts": {
+    "build": "node figma-plugin/build.mjs",
+    "watch": "node figma-plugin/build.mjs --watch",
+    "server": "node mock-server.mjs",
+    "dev": "concurrently -n server,plugin -c cyan,magenta \"npm run server\" \"npm run watch\"",
+    "typecheck": "tsc --noEmit -p figma-plugin/tsconfig.json"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.100.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
