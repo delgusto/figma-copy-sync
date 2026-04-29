@@ -90,11 +90,11 @@ You should see:
 
 1. Open `strings.html` in a browser.
 2. Select all (`⌘A` / `Ctrl+A`), copy.
-3. In Confluence (edit mode), paste. The table should render with inline styles preserved.
-4. Upload the `frames/*.png` files as page attachments.
-5. (Optional) Replace the screenshot column's filename text with proper Confluence image links pointing to those attachments.
+3. In Confluence (edit mode), paste. The table renders with inline styles + **embedded screenshots** preserved.
 
-> **Honest caveat:** Confluence Cloud and Confluence Server differ in what HTML they preserve on paste. Cloud is more permissive. Test once on your instance.
+Screenshots are embedded as `data:image/png;base64,…` inline in the HTML, so a single paste carries the images with it — no manual attach step. The `frames/*.png` files in the ZIP are still there for use elsewhere (XLSX references them by filename).
+
+> **Trade-off:** embedding inflates the HTML by ~33% per image. A bundle with 50 high-res frames produces an HTML around 10-15 MB. Confluence Cloud handles this fine; Confluence Server may rate-limit large pastes. If you hit issues, fall back to filename references — track an issue and we'll add a toggle.
 
 ---
 

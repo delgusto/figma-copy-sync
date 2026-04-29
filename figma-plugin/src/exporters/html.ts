@@ -1,9 +1,17 @@
-import type { ExportPayload, VariableEntry } from '../types';
+import type { ExportPayload, FramePng, VariableEntry } from '../types';
 
 // HTML table designed to survive copy-paste into Confluence Cloud.
 // All styling inline because Confluence's storage format strips <style> blocks.
+// Frame screenshots are embedded as data: URLs so a single paste carries
+// the images with it — no manual attachment step.
 
 export function buildHtml(payload: ExportPayload): string {
+  // frame display name -> data URL
+  const frameDataUrls = new Map<string, string>();
+  for (const frame of payload.frames) {
+    frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
+  }
+
   const sections: string[] = [];
 
   // Group by collection, then by group path within collection.
@@ -15,7 +23,7 @@ export function buildHtml(payload: ExportPayload): string {
 
   for (const [colName, vars] of byCollection) {
     sections.push(`<h3 style="${h3Style}">${escapeHtml(colName)}</h3>`);
-    sections.push(buildSectionTable(vars, payload.modes));
+    sections.push(buildSectionTable(vars, payload.modes, frameDataUrls));
   }
 
   return `<!doctype html>
@@ -28,7 +36,7 @@ ${sections.join('\n')}
 </body></html>`;
 }
 
-function buildSectionTable(vars: VariableEntry[], modes: string[]): string {
+function buildSectionTable(vars: VariableEntry[], modes: string[], frameDataUrls: Map<string, string>): string {
   // Sub-group within a collection by `group` path; emit a sub-heading row per group.
   const byGroup = new Map<string, VariableEntry[]>();
   for (const v of vars) {
@@ -53,16 +61,23 @@ function buildSectionTable(vars: VariableEntry[], modes: string[]): string {
       );
     }
     for (const v of list) {
-      const screenshotLinks = v.frames
-        .map((f) => `<code style="${codeStyle}">frames/${escapeHtml(sanitize(f))}.png</code>`)
-        .join('<br>');
+      const screenshots = v.frames
+        .map((frameName) => {
+          const dataUrl = frameDataUrls.get(frameName);
+          const caption = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(frameName)}</div>`;
+          if (!dataUrl) {
+            return `<div style="margin-bottom:8px"><code style="${codeStyle}">frames/${escapeHtml(sanitize(frameName))}.png</code>${caption}</div>`;
+          }
+          return `<div style="margin-bottom:8px"><img alt="${escapeHtml(frameName)}" src="${dataUrl}" style="${imgStyle}"/>${caption}</div>`;
+        })
+        .join('');
       rows.push(`
         <tr>
           <td style="${tdStyle}"><code style="${codeStyle}">${escapeHtml(v.name)}</code><div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(v.id)}</div></td>
           <td style="${tdStyle}">${escapeHtml(v.description)}</td>
           ${modes.map((m) => `<td style="${tdStyle}">${escapeHtml(v.values[m] ?? '')}</td>`).join('')}
           <td style="${tdStyle}">${escapeHtml(v.frames.join(', '))}</td>
-          <td style="${tdStyle}">${screenshotLinks}</td>
+          <td style="${tdStyle}">${screenshots || '<span style="color:#aaa">—</span>'}</td>
         </tr>`);
     }
   }
@@ -82,6 +97,20 @@ const thStyle = 'text-align:left;background:#f5f5f5;border:1px solid #ddd;paddin
 const tdStyle = 'border:1px solid #ddd;padding:8px 10px;vertical-align:top;';
 const groupRowStyle = 'border:1px solid #ddd;background:#fafafa;padding:6px 10px;font-size:12px;color:#666;font-weight:600;';
 const codeStyle = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#f5f5f5;padding:1px 4px;border-radius:3px;';
+const imgStyle = 'max-width:280px;width:100%;height:auto;border:1px solid #ddd;border-radius:4px;display:block;';
+
+function bytesToDataUrl(bytes: Uint8Array): string {
+  // Build a base64 string in chunks to avoid the call-stack limit on
+  // String.fromCharCode(...new Uint8Array(big)).
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const chunk = bytes.subarray(i, i + CHUNK);
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  const b64 = btoa(binary);
+  return `data:image/png;base64,${b64}`;
+}
 
 function escapeHtml(s: string): string {
   return s
