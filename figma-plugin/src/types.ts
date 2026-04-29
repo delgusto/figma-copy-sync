@@ -1,40 +1,49 @@
-// Shared types. Kept small and dependency-free so the plugin main thread,
-// UI, and future API can all import without friction.
+// Shared types between plugin main thread and UI iframe.
 
-export type StringStatus = 'draft' | 'review' | 'approved' | 'live';
-
-export interface CopyString {
-  id: string;          // e.g. "checkout.payment.cta.primary"
-  area: string;        // e.g. "payment"
-  context?: string;    // writer notes
-  charLimit?: number;  // optional max length
-  status: StringStatus;
-  en: string;          // English copy. More locales added later as optional fields.
-}
-
-export interface Project {
-  id: string;          // first segment of string IDs (e.g. "checkout")
-  name: string;        // human label
-  strings: CopyString[];
-}
-
-// Messages between plugin main thread and UI. Keep the surface small.
-export type PluginToUiMessage =
-  | { type: 'init'; projectId: string | null; selection: SelectionInfo[] }
-  | { type: 'selection-change'; selection: SelectionInfo[] }
-  | { type: 'toast'; level: 'info' | 'error' | 'success'; text: string };
-
-export type UiToPluginMessage =
-  | { type: 'bind-file-to-project'; projectId: string }
-  | { type: 'bind-layer'; nodeId: string; stringId: string }
-  | { type: 'unbind-layer'; nodeId: string }
-  | { type: 'refresh-selection'; strings: CopyString[] }
-  | { type: 'refresh-page'; strings: CopyString[] };
-
-export interface SelectionInfo {
+export interface CollectionInfo {
   id: string;
   name: string;
-  type: string;           // Figma node type
-  currentText: string | null;  // null if not a text node
-  boundStringId: string | null;
+  stringVariableCount: number;
+  isCopyByDefault: boolean; // name starts with "Copy"
 }
+
+export interface VariableEntry {
+  id: string;        // canonical name (Figma variable name, e.g. "checkout/payment/cta-primary")
+  name: string;      // same as id; preserved if we ever split internal id from display name
+  description: string;
+  collectionName: string;
+  value: string;     // value in default mode
+  frames: string[];  // frame names (de-duplicated, sorted)
+}
+
+export interface FramePng {
+  // Stable filename used in the ZIP (sanitized).
+  filename: string;
+  // Display name (raw frame name).
+  name: string;
+  // Page that contains the frame.
+  pageName: string;
+  // PNG bytes.
+  bytes: Uint8Array;
+}
+
+export interface ExportPayload {
+  fileName: string;
+  fileKey: string;
+  exportedAt: string; // ISO
+  variables: VariableEntry[];
+  frames: FramePng[];
+}
+
+// Plugin -> UI messages.
+export type PluginToUiMessage =
+  | { type: 'init'; collections: CollectionInfo[]; persistedSelection: string[] | null }
+  | { type: 'progress'; phase: 'scanning' | 'exporting-frames' | 'building-bundle'; current: number; total: number; label?: string }
+  | { type: 'export-result'; payload: ExportPayload }
+  | { type: 'toast'; level: 'info' | 'error' | 'success'; text: string };
+
+// UI -> plugin messages.
+export type UiToPluginMessage =
+  | { type: 'export'; selectedCollectionIds: string[] }
+  | { type: 'persist-selection'; selectedCollectionIds: string[] }
+  | { type: 'cancel' };

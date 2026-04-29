@@ -6,20 +6,21 @@
   "scripts": {
     "build": "node figma-plugin/build.mjs",
     "watch": "node figma-plugin/build.mjs --watch",
-    "server": "node mock-server.mjs",
-    "dev": "concurrently -n server,plugin -c cyan,magenta \"npm run server\" \"npm run watch\"",
+    "dev": "node figma-plugin/build.mjs --watch",
     "typecheck": "tsc --noEmit -p figma-plugin/tsconfig.json"
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.100.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "concurrently": "^8.2.2",
     "esbuild": "^0.24.0",
     "typescript": "^5.5.4"
   },
   "dependencies": {
+    "@types/jszip": "^3.4.0",
+    "jszip": "^3.10.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
   }
 }

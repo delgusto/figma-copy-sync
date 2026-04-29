@@ -4,8 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = resolve(__dirname, '..');
-const distDir = resolve(root, 'dist');
+const distDir = resolve(__dirname, 'dist');
 mkdirSync(distDir, { recursive: true });
 
 const watch = process.argv.includes('--watch');
