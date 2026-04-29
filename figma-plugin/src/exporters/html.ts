@@ -48,9 +48,9 @@ function buildSectionTable(vars: VariableEntry[], modes: string[], frameDataUrls
   const headerCells = [
     `<th style="${thStyle}">Name</th>`,
     `<th style="${thStyle}">Description</th>`,
+    `<th style="${thStyle}">Screenshots</th>`,
     ...modes.map((m) => `<th style="${thStyle}">${escapeHtml(m)}</th>`),
     `<th style="${thStyle}">Frames</th>`,
-    `<th style="${thStyle}">Screenshots</th>`,
   ].join('');
 
   const rows: string[] = [];
@@ -75,9 +75,9 @@ function buildSectionTable(vars: VariableEntry[], modes: string[], frameDataUrls
         <tr>
           <td style="${tdStyle}"><code style="${codeStyle}">${escapeHtml(v.name)}</code><div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(v.id)}</div></td>
           <td style="${tdStyle}">${escapeHtml(v.description)}</td>
+          <td style="${tdStyle}">${screenshots || '<span style="color:#aaa">—</span>'}</td>
           ${modes.map((m) => `<td style="${tdStyle}">${escapeHtml(v.values[m] ?? '')}</td>`).join('')}
           <td style="${tdStyle}">${escapeHtml(v.frames.join(', '))}</td>
-          <td style="${tdStyle}">${screenshots || '<span style="color:#aaa">—</span>'}</td>
         </tr>`);
     }
   }
