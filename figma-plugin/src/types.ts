@@ -9,11 +9,14 @@ export interface CollectionInfo {
 
 export interface VariableEntry {
   id: string;        // canonical name (Figma variable name, e.g. "checkout/payment/cta-primary")
-  name: string;      // same as id; preserved if we ever split internal id from display name
+  name: string;      // leaf name (last `/`-segment); useful for display
+  fullName: string;  // full slash-path, same as id
+  group: string;     // everything before the last `/` (empty if no slash)
   description: string;
   collectionName: string;
-  value: string;     // value in default mode
-  frames: string[];  // frame names (de-duplicated, sorted)
+  defaultModeName: string;            // mode designated default by the collection
+  values: Record<string, string>;     // keyed by mode name
+  frames: string[];                   // frame names (de-duplicated, sorted)
 }
 
 export interface FramePng {
@@ -31,6 +34,7 @@ export interface ExportPayload {
   fileName: string;
   fileKey: string;
   exportedAt: string; // ISO
+  modes: string[];    // ordered union of modes across selected collections
   variables: VariableEntry[];
   frames: FramePng[];
 }
@@ -46,4 +50,5 @@ export type PluginToUiMessage =
 export type UiToPluginMessage =
   | { type: 'export'; selectedCollectionIds: string[] }
   | { type: 'persist-selection'; selectedCollectionIds: string[] }
+  | { type: 'refresh' }
   | { type: 'cancel' };

@@ -6,12 +6,16 @@ export function buildJson(payload: ExportPayload): string {
     exportedAt: payload.exportedAt,
     fileName: payload.fileName,
     fileKey: payload.fileKey,
+    modes: payload.modes,
     variables: payload.variables.map((v) => ({
       id: v.id,
+      fullName: v.fullName,
       name: v.name,
+      group: v.group,
       description: v.description,
       collection: v.collectionName,
-      value: v.value,
+      defaultMode: v.defaultModeName,
+      values: v.values,           // { [modeName]: value }
       frames: v.frames,
     })),
   };

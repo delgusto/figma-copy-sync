@@ -13,7 +13,7 @@ import type {
 const PLUGIN_DATA_KEY_SELECTION = 'copyCollections';
 const SKIP_PREFIX = '[skip]';
 
-figma.showUI(__html__, { width: 380, height: 560, themeColors: true });
+figma.showUI(__html__, { width: 380, height: 600, themeColors: true });
 
 function postToUi(msg: PluginToUiMessage) {
   figma.ui.postMessage(msg);
@@ -46,7 +46,7 @@ function readPersistedSelection(): string[] | null {
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : null;
-  } catch {
+  } catch (_e) {
     return null;
   }
 }
@@ -55,16 +55,31 @@ function persistSelection(ids: string[]) {
   figma.root.setPluginData(PLUGIN_DATA_KEY_SELECTION, JSON.stringify(ids));
 }
 
+async function pushInit() {
+  try {
+    const collections = await getCollectionsWithStringVars();
+    postToUi({
+      type: 'init',
+      collections,
+      persistedSelection: readPersistedSelection(),
+    });
+  } catch (err) {
+    postToUi({ type: 'toast', level: 'error', text: `Failed to read variables: ${stringifyError(err)}` });
+  }
+}
+
 // Initial UI bootstrap.
-(async () => {
-  const collections = await getCollectionsWithStringVars();
-  postToUi({
-    type: 'init',
-    collections,
-    persistedSelection: readPersistedSelection(),
-  });
-})().catch((err) => {
-  postToUi({ type: 'toast', level: 'error', text: `Failed to read variables: ${String(err.message || err)}` });
+pushInit();
+
+// Auto-refresh when the document changes — variable add / rename / value edit
+// all fire 'documentchange'. Throttle to avoid hammering on rapid edits.
+let refreshTimer: number | null = null;
+figma.on('documentchange', () => {
+  if (refreshTimer != null) return;
+  refreshTimer = (setTimeout(() => {
+    refreshTimer = null;
+    pushInit();
+  }, 800) as unknown) as number;
 });
 
 function findTopLevelFrame(node: BaseNode): FrameNode | null {
@@ -88,7 +103,6 @@ async function buildVariableUsageMap(selectedVarIds: Set<string>): Promise<Map<s
     for (const node of textNodes) {
       const bound = (node as TextNode).boundVariables;
       if (!bound) continue;
-      // boundVariables.characters can be a single VariableAlias or an array.
       const chars = (bound as any).characters;
       if (!chars) continue;
       const aliases = Array.isArray(chars) ? chars : [chars];
@@ -123,7 +137,7 @@ async function exportFrames(frames: FrameNode[]): Promise<FramePng[]> {
       label: frame.name,
     });
 
-    let base = sanitizeFilename(frame.name) || `frame_${frame.id.replace(/[^a-zA-Z0-9]/g, '')}`;
+    const base = sanitizeFilename(frame.name) || `frame_${frame.id.replace(/[^a-zA-Z0-9]/g, '')}`;
     let candidate = `${base}.png`;
     let n = 2;
     while (usedNames.has(candidate)) {
@@ -146,6 +160,16 @@ async function exportFrames(frames: FrameNode[]): Promise<FramePng[]> {
   return out;
 }
 
+function leafName(fullName: string): string {
+  const idx = fullName.lastIndexOf('/');
+  return idx === -1 ? fullName : fullName.slice(idx + 1);
+}
+
+function groupOf(fullName: string): string {
+  const idx = fullName.lastIndexOf('/');
+  return idx === -1 ? '' : fullName.slice(0, idx);
+}
+
 async function runExport(selectedCollectionIds: string[]) {
   try {
     if (selectedCollectionIds.length === 0) {
@@ -157,13 +181,26 @@ async function runExport(selectedCollectionIds: string[]) {
 
     postToUi({ type: 'progress', phase: 'scanning', current: 0, total: 0, label: 'Reading variables…' });
 
-    // Collect string variables in selected collections.
-    const allVars = await figma.variables.getLocalVariablesAsync('STRING');
+    // Resolve selected collections, in stable order.
     const collectionById = new Map<string, VariableCollection>();
     for (const colId of selectedCollectionIds) {
       const col = await figma.variables.getVariableCollectionByIdAsync(colId);
       if (col) collectionById.set(colId, col);
     }
+
+    // Build ordered union of mode names across selected collections.
+    const modeOrder: string[] = [];
+    const seenModes = new Set<string>();
+    for (const col of collectionById.values()) {
+      for (const m of col.modes) {
+        if (!seenModes.has(m.name)) {
+          seenModes.add(m.name);
+          modeOrder.push(m.name);
+        }
+      }
+    }
+
+    const allVars = await figma.variables.getLocalVariablesAsync('STRING');
     const selectedVars = allVars.filter(
       (v) =>
         collectionById.has(v.variableCollectionId) &&
@@ -182,21 +219,36 @@ async function runExport(selectedCollectionIds: string[]) {
     // Build entries.
     const entries: VariableEntry[] = selectedVars.map((v) => {
       const col = collectionById.get(v.variableCollectionId)!;
-      const defaultModeId = col.defaultModeId;
-      const raw = v.valuesByMode[defaultModeId];
-      const value = typeof raw === 'string' ? raw : '';
+      const defaultMode = col.modes.find((m) => m.modeId === col.defaultModeId);
+      const values: Record<string, string> = {};
+      for (const m of col.modes) {
+        const raw = v.valuesByMode[m.modeId];
+        values[m.name] = typeof raw === 'string' ? raw : '';
+      }
       const frameSet = usage.get(v.id);
       const frameNames = frameSet
         ? Array.from(frameSet).map((f) => f.name).sort((a, b) => a.localeCompare(b))
         : [];
       return {
         id: v.name,
-        name: v.name,
+        name: leafName(v.name),
+        fullName: v.name,
+        group: groupOf(v.name),
         description: v.description || '',
         collectionName: col.name,
-        value,
+        defaultModeName: defaultMode ? defaultMode.name : (col.modes[0] ? col.modes[0].name : ''),
+        values,
         frames: Array.from(new Set(frameNames)),
       };
+    });
+
+    // Stable sort: collection, then group path, then leaf name.
+    entries.sort((a, b) => {
+      const c = a.collectionName.localeCompare(b.collectionName);
+      if (c !== 0) return c;
+      const g = a.group.localeCompare(b.group);
+      if (g !== 0) return g;
+      return a.name.localeCompare(b.name);
     });
 
     // Union of all frames across selected variables.
@@ -214,13 +266,24 @@ async function runExport(selectedCollectionIds: string[]) {
       fileName: figma.root.name,
       fileKey: figma.fileKey || '',
       exportedAt: new Date().toISOString(),
+      modes: modeOrder,
       variables: entries,
       frames: framePngs,
     };
     postToUi({ type: 'export-result', payload });
-  } catch (err: any) {
+  } catch (err) {
     console.error(err);
-    postToUi({ type: 'toast', level: 'error', text: `Export failed: ${String(err.message || err)}` });
+    postToUi({ type: 'toast', level: 'error', text: `Export failed: ${stringifyError(err)}` });
+  }
+}
+
+function stringifyError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  try {
+    return JSON.stringify(e);
+  } catch (_err) {
+    return String(e);
   }
 }
 
@@ -231,6 +294,10 @@ figma.ui.onmessage = (msg: UiToPluginMessage) => {
   }
   if (msg.type === 'persist-selection') {
     persistSelection(msg.selectedCollectionIds);
+    return;
+  }
+  if (msg.type === 'refresh') {
+    pushInit();
     return;
   }
   if (msg.type === 'cancel') {

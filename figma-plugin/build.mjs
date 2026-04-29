@@ -14,7 +14,9 @@ const mainCtx = await esbuild.context({
   bundle: true,
   outfile: resolve(distDir, 'main.js'),
   platform: 'browser',
-  target: 'es2020',
+  // Figma plugin sandbox runs an older JS engine — downlevel for safety.
+  // Optional catch binding, ?., ??, etc. all need this target to be transpiled.
+  target: 'es2016',
   format: 'iife',
   logLevel: 'info',
 });

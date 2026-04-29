@@ -45,6 +45,21 @@ The plugin panel lists every variable collection in the file that contains strin
 
 ---
 
+## What goes in each column
+
+- **collection** — the Figma variable collection's name.
+- **group** — everything before the last `/` in the variable name. E.g. `page 1/heading` → group is `page 1`. Lets you organise hundreds of strings under sub-paths inside a single collection.
+- **name** — the leaf segment (`heading`).
+- **id** — full slash-path (`page 1/heading`). Stable across renames-of-leaf as long as the path stays the same.
+- **description** — comes from the **variable's description in Figma** (visible by clicking a variable in Figma's variables panel → Edit variable → Description field). Use this for context / character-limit notes / who's asking. Empty cell = no description set.
+- **one column per mode** — every Figma variable mode in the selected collections becomes its own column. English-only files have one column; multi-locale files (e.g. modes `en`, `es`, `fr`) get one column per locale automatically.
+- **frames** — comma-separated list of top-level frame names where the variable is used.
+- **screenshot_files** — filenames inside the bundle's `frames/` folder.
+
+> The plugin auto-refreshes when you edit variables in Figma. There's also a **Refresh** button if you want to force a re-scan.
+
+---
+
 ## How it picks "copy" variables
 
 Not every Figma string variable is UI copy (some hold URLs, brand names, design-token labels). Three layered filters:

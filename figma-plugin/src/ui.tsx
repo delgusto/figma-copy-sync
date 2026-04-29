@@ -96,9 +96,17 @@ function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={headerWrap}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>Copy Sync — Export</div>
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-          Pick the collections that hold UX copy. Export bundles JSON + XLSX + HTML + frame screenshots.
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Copy Sync — Export</div>
+          <button
+            style={refreshBtn}
+            onClick={() => send({ type: 'refresh' })}
+            disabled={isWorking}
+            title="Re-scan variables in this file"
+          >Refresh</button>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+          Pick the collections that hold UX copy. Description column comes from each variable's <em>description</em> in Figma's variable panel.
         </div>
       </div>
 
@@ -180,6 +188,7 @@ function toastBg(level: 'info' | 'error' | 'success'): string {
 }
 
 const headerWrap: React.CSSProperties = { padding: 12, borderBottom: '1px solid var(--border)' };
+const refreshBtn: React.CSSProperties = { padding: '4px 8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', borderRadius: 6, cursor: 'pointer', fontSize: 11 };
 const rowStyle: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--border)' };
 const pill: React.CSSProperties = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--accent-text, #fff)', background: 'var(--accent, #0d99ff)', padding: '1px 6px', borderRadius: 999 };
 const footer: React.CSSProperties = { padding: 12, borderTop: '1px solid var(--border)', background: 'var(--bg)' };
