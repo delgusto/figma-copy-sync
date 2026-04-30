@@ -165,14 +165,30 @@ async function exportFrames(
   bindings: Binding[],
   varNameById: Map<string, string>,
 ): Promise<{ pngs: FramePng[]; nameByFrameId: Map<string, string> }> {
-  // Resolve display name collisions (same frame name on different pages).
+  // Display-name uniqueness. Two passes:
+  //   1. If the raw name collides at all, suffix with the page name.
+  //   2. If still colliding (two frames with the same name on the same
+  //      page — common in design systems with reused component names),
+  //      append "#2", "#3", … so each frame's display name is unique.
+  // Uniqueness is required because the HTML/CSS pipeline caches annotated
+  // images by display name; collisions cause one row to render another
+  // row's screenshot (no red box around the current variable's text).
   const nameCounts = new Map<string, number>();
   for (const f of frames) nameCounts.set(f.name, (nameCounts.get(f.name) || 0) + 1);
   const nameByFrameId = new Map<string, string>();
+  const usedDisplay = new Set<string>();
   for (const f of frames) {
     const collide = (nameCounts.get(f.name) || 0) > 1;
     const pageName = (f.parent && f.parent.type === 'PAGE') ? f.parent.name : '';
-    nameByFrameId.set(f.id, collide && pageName ? `${f.name} (${pageName})` : f.name);
+    const base = collide && pageName ? `${f.name} (${pageName})` : f.name;
+    let candidate = base;
+    let n = 2;
+    while (usedDisplay.has(candidate)) {
+      candidate = `${base} #${n}`;
+      n++;
+    }
+    usedDisplay.add(candidate);
+    nameByFrameId.set(f.id, candidate);
   }
 
   const out: FramePng[] = [];
