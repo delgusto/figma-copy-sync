@@ -3,12 +3,15 @@
 
 import type {
   CollectionInfo,
+  CopyRect,
   ExportPayload,
   FramePng,
   PluginToUiMessage,
   UiToPluginMessage,
   VariableEntry,
 } from './types';
+
+const EXPORT_SCALE = 2;
 
 const PLUGIN_DATA_KEY_SELECTION = 'copyCollections';
 const SKIP_PREFIX = '[skip]';
@@ -93,8 +96,18 @@ function findTopLevelFrame(node: BaseNode): FrameNode | null {
   return null;
 }
 
-async function buildVariableUsageMap(selectedVarIds: Set<string>): Promise<Map<string, Set<FrameNode>>> {
-  const map = new Map<string, Set<FrameNode>>();
+interface UsageData {
+  /** variableId -> set of top-level frames that contain it */
+  varToFrames: Map<string, Set<FrameNode>>;
+  /** frameId -> list of [variableId, textNode] pairs in that frame */
+  frameToBoundText: Map<string, Array<{ variableId: string; node: TextNode }>>;
+}
+
+async function buildVariableUsageMap(
+  selectedVarIds: Set<string>,
+): Promise<UsageData> {
+  const varToFrames = new Map<string, Set<FrameNode>>();
+  const frameToBoundText = new Map<string, Array<{ variableId: string; node: TextNode }>>();
   await figma.loadAllPagesAsync();
 
   for (const page of figma.root.children) {
@@ -111,19 +124,25 @@ async function buildVariableUsageMap(selectedVarIds: Set<string>): Promise<Map<s
         if (!selectedVarIds.has(alias.id)) continue;
         const topFrame = findTopLevelFrame(node);
         if (!topFrame) continue;
-        if (!map.has(alias.id)) map.set(alias.id, new Set());
-        map.get(alias.id)!.add(topFrame);
+        if (!varToFrames.has(alias.id)) varToFrames.set(alias.id, new Set());
+        varToFrames.get(alias.id)!.add(topFrame);
+        if (!frameToBoundText.has(topFrame.id)) frameToBoundText.set(topFrame.id, []);
+        frameToBoundText.get(topFrame.id)!.push({ variableId: alias.id, node: node as TextNode });
       }
     }
   }
-  return map;
+  return { varToFrames, frameToBoundText };
 }
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._\- ]/g, '_').replace(/\s+/g, '_').slice(0, 100);
 }
 
-async function exportFrames(frames: FrameNode[]): Promise<FramePng[]> {
+async function exportFrames(
+  frames: FrameNode[],
+  frameToBoundText: Map<string, Array<{ variableId: string; node: TextNode }>>,
+  varNameById: Map<string, string>,
+): Promise<FramePng[]> {
   const out: FramePng[] = [];
   const usedNames = new Set<string>();
   let i = 0;
@@ -148,13 +167,44 @@ async function exportFrames(frames: FrameNode[]): Promise<FramePng[]> {
 
     const bytes = await frame.exportAsync({
       format: 'PNG',
-      constraint: { type: 'SCALE', value: 2 },
+      constraint: { type: 'SCALE', value: EXPORT_SCALE },
     });
+
+    // Compute rects in PNG-pixel coords (relative to frame, scaled).
+    const frameBox = frame.absoluteBoundingBox;
+    const rects: CopyRect[] = [];
+    if (frameBox) {
+      const entries = frameToBoundText.get(frame.id) || [];
+      for (const { variableId, node } of entries) {
+        const nb = node.absoluteBoundingBox;
+        if (!nb) continue;
+        // Clip to frame bbox so labels can't draw outside the image.
+        const x = Math.max(0, nb.x - frameBox.x);
+        const y = Math.max(0, nb.y - frameBox.y);
+        const right = Math.min(frameBox.width, nb.x + nb.width - frameBox.x);
+        const bottom = Math.min(frameBox.height, nb.y + nb.height - frameBox.y);
+        const w = Math.max(0, right - x);
+        const h = Math.max(0, bottom - y);
+        if (w === 0 || h === 0) continue;
+        rects.push({
+          variableId,
+          variableName: varNameById.get(variableId) || variableId,
+          x: x * EXPORT_SCALE,
+          y: y * EXPORT_SCALE,
+          w: w * EXPORT_SCALE,
+          h: h * EXPORT_SCALE,
+        });
+      }
+    }
+
     out.push({
       filename: candidate,
       name: frame.name,
       pageName: (frame.parent && frame.parent.type === 'PAGE') ? frame.parent.name : '',
       bytes,
+      width: frameBox ? Math.round(frameBox.width * EXPORT_SCALE) : 0,
+      height: frameBox ? Math.round(frameBox.height * EXPORT_SCALE) : 0,
+      rects,
     });
   }
   return out;
@@ -214,6 +264,7 @@ async function runExport(selectedCollectionIds: string[]) {
 
     postToUi({ type: 'progress', phase: 'scanning', current: 0, total: 0, label: 'Mapping variables to frames…' });
     const selectedIds = new Set(selectedVars.map((v) => v.id));
+    const varNameById = new Map(selectedVars.map((v) => [v.id, v.name]));
     const usage = await buildVariableUsageMap(selectedIds);
 
     // Build entries.
@@ -225,7 +276,7 @@ async function runExport(selectedCollectionIds: string[]) {
         const raw = v.valuesByMode[m.modeId];
         values[m.name] = typeof raw === 'string' ? raw : '';
       }
-      const frameSet = usage.get(v.id);
+      const frameSet = usage.varToFrames.get(v.id);
       const frameNames = frameSet
         ? Array.from(frameSet).map((f) => f.name).sort((a, b) => a.localeCompare(b))
         : [];
@@ -253,12 +304,14 @@ async function runExport(selectedCollectionIds: string[]) {
 
     // Union of all frames across selected variables.
     const allFrames = new Set<FrameNode>();
-    for (const set of usage.values()) {
+    for (const set of usage.varToFrames.values()) {
       for (const f of set) allFrames.add(f);
     }
     const framesSorted = Array.from(allFrames).sort((a, b) => a.name.localeCompare(b.name));
 
-    const framePngs = framesSorted.length ? await exportFrames(framesSorted) : [];
+    const framePngs = framesSorted.length
+      ? await exportFrames(framesSorted, usage.frameToBoundText, varNameById)
+      : [];
 
     postToUi({ type: 'progress', phase: 'building-bundle', current: 1, total: 1 });
 

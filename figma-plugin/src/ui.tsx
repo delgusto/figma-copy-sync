@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CollectionInfo,
   ExportPayload,
@@ -7,6 +7,7 @@ import type {
   UiToPluginMessage,
 } from './types';
 import { buildAndDownloadBundle } from './zip';
+import { annotateAll } from './annotate';
 
 function send(msg: UiToPluginMessage) {
   parent.postMessage({ pluginMessage: msg }, '*');
@@ -28,6 +29,10 @@ function App() {
   const [toast, setToast] = useState<Toast>(null);
   const [progress, setProgress] = useState<ProgressState>({ phase: 'idle', current: 0, total: 0 });
   const [lastResult, setLastResult] = useState<ExportPayload | null>(null);
+  const [highlightCopy, setHighlightCopy] = useState<boolean>(true);
+  // Ref so the message listener (registered once) reads the current toggle.
+  const highlightRef = useRef(highlightCopy);
+  useEffect(() => { highlightRef.current = highlightCopy; }, [highlightCopy]);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -51,19 +56,33 @@ function App() {
       } else if (msg.type === 'progress') {
         setProgress({ phase: msg.phase, current: msg.current, total: msg.total, label: msg.label });
       } else if (msg.type === 'export-result') {
-        setProgress({ phase: 'done', current: 1, total: 1 });
-        setLastResult(msg.payload);
-        buildAndDownloadBundle(msg.payload)
-          .then(() => {
-            setToast({
-              level: 'success',
-              text: `Bundle downloaded · ${msg.payload.variables.length} string${msg.payload.variables.length === 1 ? '' : 's'}, ${msg.payload.frames.length} frame${msg.payload.frames.length === 1 ? '' : 's'}`,
+        setProgress({ phase: 'building-bundle', current: 0, total: 1, label: highlightRef.current ? 'Annotating frames…' : 'Building bundle…' });
+        const payload = msg.payload;
+        const finishBundle = (annotatedPayload: ExportPayload) => {
+          setProgress({ phase: 'done', current: 1, total: 1 });
+          setLastResult(annotatedPayload);
+          buildAndDownloadBundle(annotatedPayload)
+            .then(() => {
+              setToast({
+                level: 'success',
+                text: `Bundle downloaded · ${annotatedPayload.variables.length} string${annotatedPayload.variables.length === 1 ? '' : 's'}, ${annotatedPayload.frames.length} frame${annotatedPayload.frames.length === 1 ? '' : 's'}`,
+              });
+              setTimeout(() => setToast(null), 4000);
+            })
+            .catch((err) => {
+              setToast({ level: 'error', text: `Bundle build failed: ${String(err.message || err)}` });
             });
-            setTimeout(() => setToast(null), 4000);
-          })
-          .catch((err) => {
-            setToast({ level: 'error', text: `Bundle build failed: ${String(err.message || err)}` });
-          });
+        };
+        if (highlightRef.current && payload.frames.length) {
+          annotateAll(payload.frames)
+            .then((frames) => finishBundle({ ...payload, frames }))
+            .catch((err) => {
+              setToast({ level: 'error', text: `Highlight failed, exporting unannotated: ${String(err.message || err)}` });
+              finishBundle(payload);
+            });
+        } else {
+          finishBundle(payload);
+        }
       } else if (msg.type === 'toast') {
         setToast({ level: msg.level, text: msg.text });
         setTimeout(() => setToast(null), 3500);
@@ -142,6 +161,16 @@ function App() {
             <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
               {totalSelectedStrings} variable{totalSelectedStrings === 1 ? '' : 's'} selected
             </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={highlightCopy}
+                onChange={(e) => setHighlightCopy(e.target.checked)}
+                disabled={isWorking}
+              />
+              <span style={{ fontSize: 12 }}>Highlight copy on screenshots</span>
+            </label>
 
             {isWorking && (
               <div style={progressBox}>

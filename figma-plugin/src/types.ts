@@ -19,6 +19,16 @@ export interface VariableEntry {
   frames: string[];                   // frame names (de-duplicated, sorted)
 }
 
+export interface CopyRect {
+  variableId: string;     // Figma variable id (not the canonical name)
+  variableName: string;   // canonical name for color stability + label
+  // PNG-pixel coords (already multiplied by export scale).
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface FramePng {
   // Stable filename used in the ZIP (sanitized).
   filename: string;
@@ -28,6 +38,12 @@ export interface FramePng {
   pageName: string;
   // PNG bytes.
   bytes: Uint8Array;
+  // PNG dimensions (post-scale).
+  width: number;
+  height: number;
+  // Bounds of every text node in the frame that's bound to a selected
+  // variable. Used by the UI iframe to draw outlines on top of the PNG.
+  rects: CopyRect[];
 }
 
 export interface ExportPayload {
