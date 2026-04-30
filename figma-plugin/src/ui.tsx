@@ -7,7 +7,6 @@ import type {
   UiToPluginMessage,
 } from './types';
 import { buildAndDownloadBundle } from './zip';
-import { annotateAll } from './annotate';
 
 function send(msg: UiToPluginMessage) {
   parent.postMessage({ pluginMessage: msg }, '*');
@@ -56,33 +55,28 @@ function App() {
       } else if (msg.type === 'progress') {
         setProgress({ phase: msg.phase, current: msg.current, total: msg.total, label: msg.label });
       } else if (msg.type === 'export-result') {
-        setProgress({ phase: 'building-bundle', current: 0, total: 1, label: highlightRef.current ? 'Annotating frames…' : 'Building bundle…' });
         const payload = msg.payload;
-        const finishBundle = (annotatedPayload: ExportPayload) => {
-          setProgress({ phase: 'done', current: 1, total: 1 });
-          setLastResult(annotatedPayload);
-          buildAndDownloadBundle(annotatedPayload)
-            .then(() => {
-              setToast({
-                level: 'success',
-                text: `Bundle downloaded · ${annotatedPayload.variables.length} string${annotatedPayload.variables.length === 1 ? '' : 's'}, ${annotatedPayload.frames.length} frame${annotatedPayload.frames.length === 1 ? '' : 's'}`,
-              });
-              setTimeout(() => setToast(null), 4000);
-            })
-            .catch((err) => {
-              setToast({ level: 'error', text: `Bundle build failed: ${String(err.message || err)}` });
+        const highlight = highlightRef.current;
+        setProgress({
+          phase: 'building-bundle',
+          current: 0,
+          total: 1,
+          label: highlight ? 'Annotating frames…' : 'Building bundle…',
+        });
+        setLastResult(payload);
+        buildAndDownloadBundle(payload, { highlight })
+          .then(() => {
+            setProgress({ phase: 'done', current: 1, total: 1 });
+            setToast({
+              level: 'success',
+              text: `Bundle downloaded · ${payload.variables.length} string${payload.variables.length === 1 ? '' : 's'}, ${payload.frames.length} frame${payload.frames.length === 1 ? '' : 's'}`,
             });
-        };
-        if (highlightRef.current && payload.frames.length) {
-          annotateAll(payload.frames)
-            .then((frames) => finishBundle({ ...payload, frames }))
-            .catch((err) => {
-              setToast({ level: 'error', text: `Highlight failed, exporting unannotated: ${String(err.message || err)}` });
-              finishBundle(payload);
-            });
-        } else {
-          finishBundle(payload);
-        }
+            setTimeout(() => setToast(null), 4000);
+          })
+          .catch((err) => {
+            setProgress({ phase: 'idle', current: 0, total: 0 });
+            setToast({ level: 'error', text: `Bundle build failed: ${String(err.message || err)}` });
+          });
       } else if (msg.type === 'toast') {
         setToast({ level: msg.level, text: msg.text });
         setTimeout(() => setToast(null), 3500);

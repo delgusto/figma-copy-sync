@@ -5,8 +5,16 @@ import type { ExportPayload, FramePng, VariableEntry } from '../types';
 // Frame screenshots are embedded as data: URLs so a single paste carries
 // the images with it — no manual attachment step.
 
-export function buildHtml(payload: ExportPayload): string {
-  // frame display name -> data URL
+/**
+ * @param perVarDataUrls  Map<frameName, Map<variableName, dataUrl>> — one
+ *   image per (frame, variable) pair, each highlighting only that variable.
+ *   Falls back to the unannotated frame if a row has no entry.
+ */
+export function buildHtml(
+  payload: ExportPayload,
+  perVarDataUrls: Map<string, Map<string, string>> = new Map(),
+): string {
+  // Fallback (unannotated) frame data URL keyed by frame name.
   const frameDataUrls = new Map<string, string>();
   for (const frame of payload.frames) {
     frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
@@ -23,7 +31,7 @@ export function buildHtml(payload: ExportPayload): string {
 
   for (const [colName, vars] of byCollection) {
     sections.push(`<h3 style="${h3Style}">${escapeHtml(colName)}</h3>`);
-    sections.push(buildSectionTable(vars, payload.modes, frameDataUrls));
+    sections.push(buildSectionTable(vars, payload.modes, frameDataUrls, perVarDataUrls));
   }
 
   return `<!doctype html>
@@ -36,7 +44,12 @@ ${sections.join('\n')}
 </body></html>`;
 }
 
-function buildSectionTable(vars: VariableEntry[], modes: string[], frameDataUrls: Map<string, string>): string {
+function buildSectionTable(
+  vars: VariableEntry[],
+  modes: string[],
+  frameDataUrls: Map<string, string>,
+  perVarDataUrls: Map<string, Map<string, string>>,
+): string {
   // Sub-group within a collection by `group` path; emit a sub-heading row per group.
   const byGroup = new Map<string, VariableEntry[]>();
   for (const v of vars) {
@@ -63,7 +76,10 @@ function buildSectionTable(vars: VariableEntry[], modes: string[], frameDataUrls
     for (const v of list) {
       const screenshots = v.frames
         .map((frameName) => {
-          const dataUrl = frameDataUrls.get(frameName);
+          // Prefer the per-variable highlighted version; fall back to the
+          // unannotated frame URL if it isn't available.
+          const perVarUrl = perVarDataUrls.get(frameName)?.get(v.id);
+          const dataUrl = perVarUrl || frameDataUrls.get(frameName);
           const caption = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(frameName)}</div>`;
           if (!dataUrl) {
             return `<div style="margin-bottom:8px"><code style="${codeStyle}">frames/${escapeHtml(sanitize(frameName))}.png</code>${caption}</div>`;

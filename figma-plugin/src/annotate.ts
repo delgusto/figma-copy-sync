@@ -1,8 +1,14 @@
-// Re-encode a frame PNG with outline rectangles drawn over each text node
-// that's bound to a tracked copy variable. Runs in the plugin UI iframe
-// (full Canvas API). Pure: takes bytes + rects, returns new bytes.
+// Re-encode a frame PNG with outline rectangles drawn over text nodes
+// bound to tracked copy variables. Two flavours:
+//   - annotateFrameAll: draw all rects, color-coded per variable. Used for
+//     the bundled frames/*.png files (devs see everything).
+//   - annotateFrameForVariable: draw ONLY the current variable's rect.
+//     Used per-row in strings.html so each row's screenshot points at the
+//     specific copy element being shown.
+// Runs in the plugin UI iframe (full Canvas API). Pure functions: take
+// bytes + rects + a target, return new bytes.
 
-import type { FramePng } from './types';
+import type { CopyRect, FramePng } from './types';
 
 // Stable hash -> hue. Same variable always gets same color across exports.
 function stringHash(s: string): number {
@@ -38,11 +44,11 @@ function blobToBytes(blob: Blob): Promise<Uint8Array> {
   });
 }
 
-export async function annotateFrame(frame: FramePng): Promise<FramePng> {
-  if (!frame.rects.length) return frame;
-
-  const bitmap = await bytesToImageBitmap(frame.bytes);
-  // Use OffscreenCanvas where available; fall back to a DOM canvas.
+async function drawAndEncode(
+  bitmap: ImageBitmap,
+  rects: CopyRect[],
+  highlightVariableName: string | null,
+): Promise<Uint8Array> {
   const canvas: any =
     typeof OffscreenCanvas !== 'undefined'
       ? new OffscreenCanvas(bitmap.width, bitmap.height)
@@ -52,21 +58,24 @@ export async function annotateFrame(frame: FramePng): Promise<FramePng> {
         });
   const ctx = canvas.getContext('2d') as
     | OffscreenCanvasRenderingContext2D
-    | CanvasRenderingContext2D;
-  if (!ctx) return frame;
+    | CanvasRenderingContext2D
+    | null;
+  if (!ctx) {
+    // Fallback: return original bytes encoded from the bitmap (no annotation).
+    return await encodeBitmap(bitmap);
+  }
 
   ctx.drawImage(bitmap as any, 0, 0);
 
-  // Stroke width scaled to image — keeps outlines visible on big frames
-  // without dominating small ones.
-  const stroke = Math.max(2, Math.round(Math.min(bitmap.width, bitmap.height) / 400));
-  const padding = Math.round(stroke * 1.5);
+  // Stroke width scaled to image. Highlighted rect a touch thicker.
+  const baseStroke = Math.max(2, Math.round(Math.min(bitmap.width, bitmap.height) / 400));
+  const padding = Math.round(baseStroke * 1.5);
 
-  for (const r of frame.rects) {
-    const color = colorFor(r.variableName);
-    (ctx as any).lineWidth = stroke;
-    (ctx as any).strokeStyle = color;
-    // Slightly inflated rect so outline sits around the text, not on top of it.
+  for (const r of rects) {
+    const isCurrent = highlightVariableName === r.variableName;
+    if (highlightVariableName !== null && !isCurrent) continue;
+    (ctx as any).lineWidth = isCurrent ? Math.round(baseStroke * 1.6) : baseStroke;
+    (ctx as any).strokeStyle = colorFor(r.variableName);
     (ctx as any).strokeRect(
       r.x - padding,
       r.y - padding,
@@ -75,9 +84,12 @@ export async function annotateFrame(frame: FramePng): Promise<FramePng> {
     );
   }
 
-  // Convert back to PNG bytes.
+  return await canvasToBytes(canvas);
+}
+
+async function canvasToBytes(canvas: any): Promise<Uint8Array> {
   let blob: Blob;
-  if (typeof (canvas as OffscreenCanvas).convertToBlob === 'function') {
+  if (typeof canvas.convertToBlob === 'function') {
     blob = await (canvas as OffscreenCanvas).convertToBlob({ type: 'image/png' });
   } else {
     blob = await new Promise<Blob>((resolve, reject) => {
@@ -87,14 +99,37 @@ export async function annotateFrame(frame: FramePng): Promise<FramePng> {
       );
     });
   }
-  const bytes = await blobToBytes(blob);
+  return await blobToBytes(blob);
+}
+
+async function encodeBitmap(bitmap: ImageBitmap): Promise<Uint8Array> {
+  const canvas: any =
+    typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(bitmap.width, bitmap.height)
+      : Object.assign(document.createElement('canvas'), { width: bitmap.width, height: bitmap.height });
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap as any, 0, 0);
+  return await canvasToBytes(canvas);
+}
+
+/** Bundle-side: draw every rect, color-coded. Used for `frames/*.png`. */
+export async function annotateFrameAll(frame: FramePng): Promise<FramePng> {
+  if (!frame.rects.length) return frame;
+  const bitmap = await bytesToImageBitmap(frame.bytes);
+  const bytes = await drawAndEncode(bitmap, frame.rects, null);
   return { ...frame, bytes };
 }
 
-export async function annotateAll(frames: FramePng[]): Promise<FramePng[]> {
-  const out: FramePng[] = [];
-  for (const f of frames) {
-    out.push(await annotateFrame(f));
-  }
-  return out;
+/**
+ * HTML-side: draw only the supplied variable's rect. Returns PNG bytes.
+ * Caller should cache results — this re-decodes the source bitmap each call.
+ */
+export async function annotateFrameForVariable(
+  frame: FramePng,
+  variableName: string,
+): Promise<Uint8Array> {
+  // No matching rect for this variable in this frame => return original.
+  if (!frame.rects.some((r) => r.variableName === variableName)) return frame.bytes;
+  const bitmap = await bytesToImageBitmap(frame.bytes);
+  return await drawAndEncode(bitmap, frame.rects, variableName);
 }
