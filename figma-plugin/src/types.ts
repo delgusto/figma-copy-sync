@@ -7,6 +7,11 @@ export interface CollectionInfo {
   isCopyByDefault: boolean; // name starts with "Copy"
 }
 
+export interface Occurrence {
+  topFrameName: string;     // top-level frame on the page
+  parentFrameName: string;  // nearest FRAME ancestor of the text node (==topFrameName if none nested)
+}
+
 export interface VariableEntry {
   id: string;        // canonical name (Figma variable name, e.g. "checkout/payment/cta-primary")
   name: string;      // leaf name (last `/`-segment); useful for display
@@ -16,7 +21,8 @@ export interface VariableEntry {
   collectionName: string;
   defaultModeName: string;            // mode designated default by the collection
   values: Record<string, string>;     // keyed by mode name
-  frames: string[];                   // frame names (de-duplicated, sorted)
+  frames: string[];                   // top-level frame names, de-duplicated + sorted (kept for json/xlsx)
+  occurrences: Occurrence[];          // de-duplicated (top, parent) pairs for HTML rendering
 }
 
 export interface CopyRect {

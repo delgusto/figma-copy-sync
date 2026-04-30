@@ -10,20 +10,8 @@
 
 import type { CopyRect, FramePng } from './types';
 
-// Stable hash -> hue. Same variable always gets same color across exports.
-function stringHash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h << 5) - h + s.charCodeAt(i);
-    h |= 0;
-  }
-  return Math.abs(h);
-}
-
-function colorFor(variableName: string): string {
-  const hue = stringHash(variableName) % 360;
-  return `hsl(${hue} 85% 50%)`;
-}
+// Single color for highlight outlines so the cue is unambiguous.
+const HIGHLIGHT_COLOR = '#FF3B30';
 
 async function bytesToImageBitmap(bytes: Uint8Array): Promise<ImageBitmap> {
   // Cast: TS lib.dom narrows Uint8Array<ArrayBufferLike> vs ArrayBuffer
@@ -75,7 +63,7 @@ async function drawAndEncode(
     const isCurrent = highlightVariableName === r.variableName;
     if (highlightVariableName !== null && !isCurrent) continue;
     (ctx as any).lineWidth = isCurrent ? Math.round(baseStroke * 1.6) : baseStroke;
-    (ctx as any).strokeStyle = colorFor(r.variableName);
+    (ctx as any).strokeStyle = HIGHLIGHT_COLOR;
     (ctx as any).strokeRect(
       r.x - padding,
       r.y - padding,

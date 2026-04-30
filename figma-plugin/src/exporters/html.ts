@@ -74,19 +74,14 @@ function buildSectionTable(
       );
     }
     for (const v of list) {
-      const screenshots = v.frames
-        .map((frameName) => {
-          // Prefer the per-variable highlighted version; fall back to the
-          // unannotated frame URL if it isn't available.
-          const perVarUrl = perVarDataUrls.get(frameName)?.get(v.id);
-          const dataUrl = perVarUrl || frameDataUrls.get(frameName);
-          const caption = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(frameName)}</div>`;
-          if (!dataUrl) {
-            return `<div style="margin-bottom:8px"><code style="${codeStyle}">frames/${escapeHtml(sanitize(frameName))}.png</code>${caption}</div>`;
-          }
-          return `<div style="margin-bottom:8px"><img alt="${escapeHtml(frameName)}" src="${dataUrl}" style="${imgStyle}"/>${caption}</div>`;
-        })
+      const occurrences = v.occurrences.length
+        ? v.occurrences
+        : v.frames.map((f) => ({ topFrameName: f, parentFrameName: f }));
+
+      const screenshots = occurrences
+        .map((occ) => renderOccurrence(occ, v.id, frameDataUrls, perVarDataUrls))
         .join('');
+
       rows.push(`
         <tr>
           <td style="${tdStyle}"><code style="${codeStyle}">${escapeHtml(v.name)}</code><div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(v.id)}</div></td>
@@ -114,6 +109,30 @@ const tdStyle = 'border:1px solid #ddd;padding:8px 10px;vertical-align:top;';
 const groupRowStyle = 'border:1px solid #ddd;background:#fafafa;padding:6px 10px;font-size:12px;color:#666;font-weight:600;';
 const codeStyle = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#f5f5f5;padding:1px 4px;border-radius:3px;';
 const imgStyle = 'max-width:280px;width:100%;height:auto;border:1px solid #ddd;border-radius:4px;display:block;';
+
+function renderOccurrence(
+  occ: { topFrameName: string; parentFrameName: string },
+  variableId: string,
+  frameDataUrls: Map<string, string>,
+  perVarDataUrls: Map<string, Map<string, string>>,
+): string {
+  const renderOne = (frameName: string, label: string): string => {
+    const perVarUrl = perVarDataUrls.get(frameName)?.get(variableId);
+    const dataUrl = perVarUrl || frameDataUrls.get(frameName);
+    const sub = `<div style="font-size:10px;color:#888;margin-top:2px"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(frameName)}</div>`;
+    if (!dataUrl) {
+      return `<div style="margin-bottom:6px"><code style="${codeStyle}">frames/${escapeHtml(sanitize(frameName))}.png</code>${sub}</div>`;
+    }
+    return `<div style="margin-bottom:6px"><img alt="${escapeHtml(frameName)}" src="${dataUrl}" style="${imgStyle}"/>${sub}</div>`;
+  };
+
+  // Skip parent if same as top — no benefit to a duplicate image.
+  const showParent = occ.parentFrameName && occ.parentFrameName !== occ.topFrameName;
+  const parentBlock = showParent ? renderOne(occ.parentFrameName, 'In context') : '';
+  const topBlock = renderOne(occ.topFrameName, 'Full frame');
+  // Tighter (parent) first, full second.
+  return `<div style="border-bottom:1px dashed #eee;padding-bottom:6px;margin-bottom:8px">${parentBlock}${topBlock}</div>`;
+}
 
 function bytesToDataUrl(bytes: Uint8Array): string {
   // Build a base64 string in chunks to avoid the call-stack limit on
