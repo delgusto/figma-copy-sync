@@ -6,6 +6,7 @@ import type {
   CopyRect,
   ExportPayload,
   FramePng,
+  ImportUpdate,
   PluginToUiMessage,
   UiToPluginMessage,
   VariableEntry,
@@ -413,6 +414,68 @@ function stringifyError(e: unknown): string {
   }
 }
 
+async function runImport(updates: ImportUpdate[]) {
+  try {
+    const allVars = await figma.variables.getLocalVariablesAsync('STRING');
+    // Index variables by canonical name for O(1) lookup.
+    const varMap = new Map(allVars.map((v) => [v.name, v]));
+
+    // Cache collections by id to avoid redundant async lookups.
+    const collectionCache = new Map<string, VariableCollection>();
+
+    let updated = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const update of updates) {
+      const variable = varMap.get(update.variableName);
+      if (!variable) {
+        skipped++;
+        continue;
+      }
+
+      let collection = collectionCache.get(variable.variableCollectionId);
+      if (!collection) {
+        const c = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
+        if (!c) {
+          skipped++;
+          continue;
+        }
+        collection = c;
+        collectionCache.set(variable.variableCollectionId, c);
+      }
+
+      let wroteAny = false;
+      for (const [modeName, value] of Object.entries(update.modeValues)) {
+        const mode = collection.modes.find((m) => m.name === modeName);
+        if (!mode) {
+          // Collect unique mode-not-found errors (cap at 5 to avoid flooding).
+          const msg = `Mode "${modeName}" not in collection "${collection.name}"`;
+          if (errors.length < 5 && !errors.includes(msg)) errors.push(msg);
+          continue;
+        }
+        variable.setValueForMode(mode.modeId, value);
+        wroteAny = true;
+      }
+      if (wroteAny) updated++;
+    }
+
+    const parts = [`Updated ${updated} variable${updated === 1 ? '' : 's'}`];
+    if (skipped > 0) parts.push(`${skipped} not found`);
+    if (errors.length > 0) parts.push(`${errors.length} mode warning${errors.length === 1 ? '' : 's'}`);
+
+    postToUi({
+      type: 'toast',
+      level: updated > 0 ? 'success' : 'info',
+      text: parts.join(' · '),
+    });
+    postToUi({ type: 'import-result', updated, skipped, errors });
+  } catch (err) {
+    postToUi({ type: 'toast', level: 'error', text: `Import failed: ${stringifyError(err)}` });
+    postToUi({ type: 'import-result', updated: 0, skipped: 0, errors: [stringifyError(err)] });
+  }
+}
+
 figma.ui.onmessage = (msg: UiToPluginMessage) => {
   if (msg.type === 'export') {
     runExport(msg.selectedCollectionIds);
@@ -424,6 +487,10 @@ figma.ui.onmessage = (msg: UiToPluginMessage) => {
   }
   if (msg.type === 'refresh') {
     pushInit();
+    return;
+  }
+  if (msg.type === 'import') {
+    runImport(msg.updates);
     return;
   }
   if (msg.type === 'cancel') {

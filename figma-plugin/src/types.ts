@@ -66,11 +66,21 @@ export type PluginToUiMessage =
   | { type: 'init'; collections: CollectionInfo[]; persistedSelection: string[] | null }
   | { type: 'progress'; phase: 'scanning' | 'exporting-frames' | 'building-bundle'; current: number; total: number; label?: string }
   | { type: 'export-result'; payload: ExportPayload }
-  | { type: 'toast'; level: 'info' | 'error' | 'success'; text: string };
+  | { type: 'toast'; level: 'info' | 'error' | 'success'; text: string }
+  | { type: 'import-result'; updated: number; skipped: number; errors: string[] };
+
+// Represents one row from an imported XLSX: variable to update + new mode values.
+export interface ImportUpdate {
+  // Canonical Figma variable name (the "id" column in the exported XLSX).
+  variableName: string;
+  // Map of mode name → new string value. Only mode columns from the XLSX are included.
+  modeValues: Record<string, string>;
+}
 
 // UI -> plugin messages.
 export type UiToPluginMessage =
   | { type: 'export'; selectedCollectionIds: string[] }
   | { type: 'persist-selection'; selectedCollectionIds: string[] }
   | { type: 'refresh' }
-  | { type: 'cancel' };
+  | { type: 'cancel' }
+  | { type: 'import'; updates: ImportUpdate[] };
