@@ -424,13 +424,13 @@ async function runImport(updates: ImportUpdate[]) {
     const collectionCache = new Map<string, VariableCollection>();
 
     let updated = 0;
-    let skipped = 0;
-    const errors: string[] = [];
+    const skippedNames: string[] = []; // variable names not found in this file
+    const modeErrors: string[] = [];   // unique mode-not-found messages
 
     for (const update of updates) {
       const variable = varMap.get(update.variableName);
       if (!variable) {
-        skipped++;
+        skippedNames.push(update.variableName);
         continue;
       }
 
@@ -438,7 +438,7 @@ async function runImport(updates: ImportUpdate[]) {
       if (!collection) {
         const c = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
         if (!c) {
-          skipped++;
+          skippedNames.push(update.variableName);
           continue;
         }
         collection = c;
@@ -449,9 +449,8 @@ async function runImport(updates: ImportUpdate[]) {
       for (const [modeName, value] of Object.entries(update.modeValues)) {
         const mode = collection.modes.find((m) => m.name === modeName);
         if (!mode) {
-          // Collect unique mode-not-found errors (cap at 5 to avoid flooding).
-          const msg = `Mode "${modeName}" not in collection "${collection.name}"`;
-          if (errors.length < 5 && !errors.includes(msg)) errors.push(msg);
+          const msg = `"${modeName}" not in collection "${collection.name}"`;
+          if (!modeErrors.includes(msg)) modeErrors.push(msg);
           continue;
         }
         variable.setValueForMode(mode.modeId, value);
@@ -460,19 +459,20 @@ async function runImport(updates: ImportUpdate[]) {
       if (wroteAny) updated++;
     }
 
+    // Toast: brief summary — details shown in results panel.
     const parts = [`Updated ${updated} variable${updated === 1 ? '' : 's'}`];
-    if (skipped > 0) parts.push(`${skipped} not found`);
-    if (errors.length > 0) parts.push(`${errors.length} mode warning${errors.length === 1 ? '' : 's'}`);
+    if (skippedNames.length > 0) parts.push(`${skippedNames.length} not found`);
+    if (modeErrors.length > 0) parts.push(`${modeErrors.length} mode warning${modeErrors.length === 1 ? '' : 's'}`);
 
     postToUi({
       type: 'toast',
       level: updated > 0 ? 'success' : 'info',
       text: parts.join(' · '),
     });
-    postToUi({ type: 'import-result', updated, skipped, errors });
+    postToUi({ type: 'import-result', updated, skippedNames, modeErrors });
   } catch (err) {
     postToUi({ type: 'toast', level: 'error', text: `Import failed: ${stringifyError(err)}` });
-    postToUi({ type: 'import-result', updated: 0, skipped: 0, errors: [stringifyError(err)] });
+    postToUi({ type: 'import-result', updated: 0, skippedNames: [], modeErrors: [stringifyError(err)] });
   }
 }
 

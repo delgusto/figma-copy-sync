@@ -23,7 +23,13 @@ interface ProgressState {
   label?: string;
 }
 
-type ImportState = 'idle' | 'parsed' | 'applying';
+type ImportState = 'idle' | 'parsed' | 'applying' | 'results';
+
+interface ImportResult {
+  updated: number;
+  skippedNames: string[];
+  modeErrors: string[];
+}
 
 // ---------------------------------------------------------------------------
 // XLSX parsing — runs entirely in the UI iframe.
@@ -88,6 +94,7 @@ function App() {
   const [importState, setImportState] = useState<ImportState>('idle');
   const [importUpdates, setImportUpdates] = useState<ImportUpdate[]>([]);
   const [importParseError, setImportParseError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
   function showToast(level: 'info' | 'error' | 'success', text: string, ms = 4000) {
@@ -133,8 +140,9 @@ function App() {
         showToast(msg.level, msg.text);
         if (msg.level !== 'success') setProgress({ phase: 'idle', current: 0, total: 0 });
       } else if (msg.type === 'import-result') {
-        setImportState('idle');
+        setImportResult({ updated: msg.updated, skippedNames: msg.skippedNames, modeErrors: msg.modeErrors });
         setImportUpdates([]);
+        setImportState('results');
       }
     }
     window.addEventListener('message', onMessage);
@@ -186,11 +194,77 @@ function App() {
     setImportState('idle');
     setImportUpdates([]);
     setImportParseError(null);
+    setImportResult(null);
   }
 
   const isWorking = progress.phase === 'scanning' || progress.phase === 'exporting-frames' || progress.phase === 'building-bundle';
   const isImporting = importState === 'applying';
   const importModeNames = importUpdates.length ? Object.keys(importUpdates[0].modeValues) : [];
+
+  // ── Import results panel ──
+  if (importState === 'results' && importResult) {
+    const { updated, skippedNames, modeErrors } = importResult;
+    const hasIssues = skippedNames.length > 0 || modeErrors.length > 0;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={headerWrap}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Import complete</div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+            {updated} variable{updated === 1 ? '' : 's'} updated
+            {skippedNames.length > 0 ? ` · ${skippedNames.length} not found` : ''}
+            {modeErrors.length > 0 ? ` · ${modeErrors.length} mode warning${modeErrors.length === 1 ? '' : 's'}` : ''}
+          </div>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, padding: '8px 0' }}>
+          {/* Not found */}
+          {skippedNames.length > 0 && (
+            <>
+              <div style={resultSectionHeader}>
+                Not found in this file ({skippedNames.length})
+              </div>
+              {skippedNames.map((name) => (
+                <div key={name} style={resultRow}>
+                  <span style={resultDot('#f90')}>●</span>
+                  <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* Mode warnings */}
+          {modeErrors.length > 0 && (
+            <>
+              <div style={{ ...resultSectionHeader, marginTop: skippedNames.length > 0 ? 12 : 0 }}>
+                Mode warnings ({modeErrors.length})
+              </div>
+              {modeErrors.map((msg) => (
+                <div key={msg} style={resultRow}>
+                  <span style={resultDot('#f90')}>●</span>
+                  <span style={{ fontSize: 12 }}>{msg}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* All good */}
+          {!hasIssues && (
+            <div style={{ padding: '16px 12px', fontSize: 12, color: 'var(--text-secondary)' }}>
+              All variables updated successfully.
+            </div>
+          )}
+        </div>
+
+        <div style={footer}>
+          <button style={primaryBtn} onClick={cancelImport}>Done</button>
+        </div>
+
+        {toast && <div style={{ ...toastStyle, background: toastBg(toast.level) }}>{toast.text}</div>}
+      </div>
+    );
+  }
 
   // ── Import preview: full-panel view so the variable list can scroll freely ──
   if (importState === 'parsed' || importState === 'applying') {
@@ -375,6 +449,9 @@ const secondaryBtnFull: React.CSSProperties = { ...secondaryBtn, width: '100%' }
 const divider: React.CSSProperties = { height: 1, background: 'var(--border)', margin: '12px 0' };
 const importPreviewBox: React.CSSProperties = { background: 'var(--bg-secondary)', borderRadius: 6, padding: 10 };
 const importErrorBox: React.CSSProperties = { borderRadius: 6, padding: '6px 8px', fontSize: 11, color: 'var(--danger, #f33)', marginBottom: 8 };
+const resultSectionHeader: React.CSSProperties = { padding: '4px 12px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-secondary)' };
+const resultRow: React.CSSProperties = { display: 'flex', alignItems: 'baseline', gap: 6, padding: '4px 12px', overflow: 'hidden' };
+function resultDot(color: string): React.CSSProperties { return { flexShrink: 0, fontSize: 8, color }; }
 const toastStyle: React.CSSProperties = { position: 'absolute', bottom: 12, left: 12, right: 12, padding: '8px 10px', borderRadius: 6, color: '#fff', fontSize: 12 };
 
 createRoot(document.getElementById('root')!).render(<App />);

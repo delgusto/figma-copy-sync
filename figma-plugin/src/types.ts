@@ -67,7 +67,7 @@ export type PluginToUiMessage =
   | { type: 'progress'; phase: 'scanning' | 'exporting-frames' | 'building-bundle'; current: number; total: number; label?: string }
   | { type: 'export-result'; payload: ExportPayload }
   | { type: 'toast'; level: 'info' | 'error' | 'success'; text: string }
-  | { type: 'import-result'; updated: number; skipped: number; errors: string[] };
+  | { type: 'import-result'; updated: number; skippedNames: string[]; modeErrors: string[] };
 
 // Represents one row from an imported XLSX: variable to update + new mode values.
 export interface ImportUpdate {
