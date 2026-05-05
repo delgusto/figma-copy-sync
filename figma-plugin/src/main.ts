@@ -17,7 +17,7 @@ const EXPORT_SCALE = 2;
 const PLUGIN_DATA_KEY_SELECTION = 'copyCollections';
 const SKIP_PREFIX = '[skip]';
 
-figma.showUI(__html__, { width: 380, height: 600, themeColors: true });
+figma.showUI(__html__, { width: 380, height: 480, themeColors: true });
 
 function postToUi(msg: PluginToUiMessage) {
   figma.ui.postMessage(msg);
