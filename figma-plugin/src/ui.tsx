@@ -192,6 +192,51 @@ function App() {
   const isImporting = importState === 'applying';
   const importModeNames = importUpdates.length ? Object.keys(importUpdates[0].modeValues) : [];
 
+  // ── Import preview: full-panel view so the variable list can scroll freely ──
+  if (importState === 'parsed' || importState === 'applying') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={headerWrap}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Import XLSX</div>
+            <button style={refreshBtn} onClick={cancelImport} disabled={isImporting}>Cancel</button>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+            {importUpdates.length} variable{importUpdates.length === 1 ? '' : 's'}
+            {importModeNames.length ? ` · modes: ${importModeNames.join(', ')}` : ''}
+          </div>
+        </div>
+
+        {/* Scrollable list of all variables being imported */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {importUpdates.map((u) => (
+            <div key={u.variableName} style={{ ...rowStyle, cursor: 'default' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {u.variableName}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {Object.entries(u.modeValues).map(([m, v]) => `${m}: "${v}"`).join(' · ')}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={footer}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={secondaryBtn} onClick={cancelImport} disabled={isImporting}>Cancel</button>
+            <button style={{ ...primaryBtn, flex: 1 }} onClick={applyImport} disabled={isImporting}>
+              {isImporting ? 'Applying…' : `Apply ${importUpdates.length} change${importUpdates.length === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        </div>
+
+        {toast && <div style={{ ...toastStyle, background: toastBg(toast.level) }}>{toast.text}</div>}
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
@@ -282,49 +327,15 @@ function App() {
               onChange={handleImportFileChange}
             />
 
-            {importState === 'idle' && (
-              <>
-                {importParseError && <div style={importErrorBox}>{importParseError}</div>}
-                <button
-                  style={secondaryBtnFull}
-                  disabled={isWorking || isImporting}
-                  onClick={() => importFileRef.current?.click()}
-                >
-                  Import XLSX…
-                </button>
-              </>
-            )}
-
-            {importState === 'parsed' && (
-              <div style={importPreviewBox}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                  {importUpdates.length} variable{importUpdates.length === 1 ? '' : 's'}
-                  {importModeNames.length ? ` · ${importModeNames.join(', ')}` : ''}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 10 }}>
-                  {importUpdates.slice(0, 4).map((u) => (
-                    <div key={u.variableName} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {u.variableName}
-                    </div>
-                  ))}
-                  {importUpdates.length > 4 && (
-                    <div style={{ color: 'var(--text-tertiary, #888)' }}>…and {importUpdates.length - 4} more</div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button style={secondaryBtn} onClick={cancelImport}>Cancel</button>
-                  <button style={{ ...primaryBtn, flex: 1 }} onClick={applyImport}>
-                    Apply {importUpdates.length} change{importUpdates.length === 1 ? '' : 's'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {importState === 'applying' && (
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '6px 0' }}>
-                Applying changes…
-              </div>
-            )}
+            {/* importState is always 'idle' here — parsed/applying handled by early return above */}
+            {importParseError && <div style={importErrorBox}>{importParseError}</div>}
+            <button
+              style={secondaryBtnFull}
+              disabled={isWorking}
+              onClick={() => importFileRef.current?.click()}
+            >
+              Import XLSX…
+            </button>
           </div>
         </>
       )}
