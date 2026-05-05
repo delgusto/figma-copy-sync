@@ -2,19 +2,23 @@ import type { ExportPayload, FramePng, VariableEntry } from '../types';
 
 // HTML table designed to survive copy-paste into Confluence Cloud.
 // All styling inline because Confluence's storage format strips <style> blocks.
-// Frame screenshots are embedded as data: URLs so a single paste carries
-// the images with it — no manual attachment step.
+// Frame screenshots embedded as data: URLs so a single paste carries the images.
+//
+// Layout: frame-centric rows.
+//   - Grouped by top-level frame (one group per frame per collection).
+//   - First row of each group: frame name + screenshot + first variable.
+//   - Subsequent rows: empty frame/screenshot cells + next variable.
+//   - No rowspan — Confluence-safe.
+//   - Variables with no frame binding: "— (no frame)" group at the bottom.
 
-/**
- * @param perVarDataUrls  Map<frameName, Map<variableName, dataUrl>> — one
- *   image per (frame, variable) pair, each highlighting only that variable.
- *   Falls back to the unannotated frame if a row has no entry.
- */
+const NO_FRAME = '— (no frame)';
+
 export function buildHtml(
   payload: ExportPayload,
-  perVarDataUrls: Map<string, Map<string, string>> = new Map(),
+  // perVarDataUrls retained for API compat but unused in frame-centric layout.
+  _perVarDataUrls: Map<string, Map<string, string>> = new Map(),
 ): string {
-  // Fallback (unannotated) frame data URL keyed by frame name.
+  // Unannotated frame data URL keyed by frame name — shown once per frame group.
   const frameDataUrls = new Map<string, string>();
   for (const frame of payload.frames) {
     frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
@@ -22,7 +26,7 @@ export function buildHtml(
 
   const sections: string[] = [];
 
-  // Group by collection, then by group path within collection.
+  // Group variables by collection (existing top-level grouping).
   const byCollection = new Map<string, VariableEntry[]>();
   for (const v of payload.variables) {
     if (!byCollection.has(v.collectionName)) byCollection.set(v.collectionName, []);
@@ -31,65 +35,105 @@ export function buildHtml(
 
   for (const [colName, vars] of byCollection) {
     sections.push(`<h3 style="${h3Style}">${escapeHtml(colName)}</h3>`);
-    sections.push(buildSectionTable(vars, payload.modes, frameDataUrls, perVarDataUrls));
+    sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, payload.frames));
   }
+
+  const varCount = payload.variables.length;
+  const frameCount = payload.frames.length;
 
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${escapeHtml(payload.fileName)} — Copy Sync export</title></head>
 <body style="${bodyStyle}">
 <h2 style="${h2Style}">${escapeHtml(payload.fileName)} — UX copy</h2>
-<p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} · ${payload.variables.length} string${payload.variables.length === 1 ? '' : 's'} · ${payload.frames.length} frame${payload.frames.length === 1 ? '' : 's'} · modes: ${payload.modes.map(escapeHtml).join(', ')}</p>
-<p style="${pStyle}"><strong>To use in Confluence:</strong> select this whole page (⌘A / Ctrl+A), copy, paste into a Confluence page in edit mode. Then upload <code>frames/*.png</code> as page attachments and link them in the screenshots column.</p>
+<p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} · ${varCount} string${varCount === 1 ? '' : 's'} · ${frameCount} frame${frameCount === 1 ? '' : 's'} · modes: ${payload.modes.map(escapeHtml).join(', ')}</p>
 ${sections.join('\n')}
 </body></html>`;
 }
 
-function buildSectionTable(
+function buildFrameTable(
   vars: VariableEntry[],
   modes: string[],
   frameDataUrls: Map<string, string>,
-  perVarDataUrls: Map<string, Map<string, string>>,
+  framePngs: FramePng[],
 ): string {
-  // Sub-group within a collection by `group` path; emit a sub-heading row per group.
-  const byGroup = new Map<string, VariableEntry[]>();
+  // Build Map<frameName, VariableEntry[]> — frame-centric grouping.
+  // A variable with N distinct top frames appears in N groups (correct).
+  // Deduplicate: each variable appears at most once per frame group.
+  const frameGroups = new Map<string, VariableEntry[]>();
+
   for (const v of vars) {
-    const key = v.group || '';
-    if (!byGroup.has(key)) byGroup.set(key, []);
-    byGroup.get(key)!.push(v);
+    const topFrameNames = v.occurrences.length
+      ? Array.from(new Set(v.occurrences.map((o) => o.topFrameName)))
+      : [];
+
+    if (topFrameNames.length === 0) {
+      if (!frameGroups.has(NO_FRAME)) frameGroups.set(NO_FRAME, []);
+      frameGroups.get(NO_FRAME)!.push(v);
+    } else {
+      for (const fn of topFrameNames) {
+        if (!frameGroups.has(fn)) frameGroups.set(fn, []);
+        const group = frameGroups.get(fn)!;
+        // Dedupe: skip if this variable is already in the group.
+        if (!group.some((g) => g.id === v.id)) group.push(v);
+      }
+    }
   }
 
+  // Sort frame groups: bound frames alphabetically, then NO_FRAME last.
+  const sortedFrameNames = Array.from(frameGroups.keys())
+    .filter((k) => k !== NO_FRAME)
+    .sort((a, b) => a.localeCompare(b));
+  if (frameGroups.has(NO_FRAME)) sortedFrameNames.push(NO_FRAME);
+
+  // Header
   const headerCells = [
-    `<th style="${thStyle}">Name</th>`,
+    `<th style="${thStyle};min-width:120px">Frame</th>`,
+    `<th style="${thStyle};min-width:200px">Screenshot</th>`,
+    `<th style="${thStyle}">Variable</th>`,
     `<th style="${thStyle}">Description</th>`,
-    `<th style="${thStyle}">Screenshots</th>`,
     ...modes.map((m) => `<th style="${thStyle}">${escapeHtml(m)}</th>`),
-    `<th style="${thStyle}">Frames</th>`,
   ].join('');
 
   const rows: string[] = [];
-  for (const [group, list] of byGroup) {
-    if (group) {
-      rows.push(
-        `<tr><td colspan="${modes.length + 4}" style="${groupRowStyle}">${escapeHtml(group)}</td></tr>`,
-      );
-    }
-    for (const v of list) {
-      const occurrences = v.occurrences.length
-        ? v.occurrences
-        : v.frames.map((f) => ({ topFrameName: f, parentFrameName: f }));
 
-      const screenshots = occurrences
-        .map((occ) => renderOccurrence(occ, v.id, frameDataUrls, perVarDataUrls))
+  for (const frameName of sortedFrameNames) {
+    const frameVars = frameGroups.get(frameName)!;
+    const dataUrl = frameName !== NO_FRAME ? frameDataUrls.get(frameName) : undefined;
+    // Find FramePng for filename fallback.
+    const framePng = frameName !== NO_FRAME
+      ? framePngs.find((f) => f.name === frameName)
+      : undefined;
+
+    for (let i = 0; i < frameVars.length; i++) {
+      const v = frameVars[i];
+      const isFirst = i === 0;
+
+      // Thicker top border on first row of each group to visually separate groups.
+      const groupBorder = isFirst ? 'border-top:2px solid #ccc;' : '';
+
+      const frameTd = isFirst
+        ? `<td style="${tdStyle};font-weight:500;vertical-align:top;${groupBorder}">${escapeHtml(frameName)}</td>`
+        : `<td style="${tdStyle};${groupBorder}"></td>`;
+
+      let screenshotContent: string;
+      if (!isFirst) {
+        screenshotContent = '';
+      } else if (dataUrl) {
+        screenshotContent = `<img alt="${escapeHtml(frameName)}" src="${dataUrl}" style="${imgStyle}"/>`;
+      } else if (framePng) {
+        screenshotContent = `<code style="${codeStyle}">frames/${escapeHtml(sanitize(framePng.filename))}</code>`;
+      } else {
+        screenshotContent = frameName !== NO_FRAME ? `<span style="color:#aaa">no screenshot</span>` : '';
+      }
+      const screenshotTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}">${screenshotContent}</td>`;
+
+      const nameTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}"><code style="${codeStyle}">${escapeHtml(v.name)}</code><div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(v.id)}</div></td>`;
+      const descTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}">${escapeHtml(v.description)}</td>`;
+      const modeTds = modes
+        .map((m) => `<td style="${tdStyle};vertical-align:top;${groupBorder}">${escapeHtml(v.values[m] ?? '')}</td>`)
         .join('');
 
-      rows.push(`
-        <tr>
-          <td style="${tdStyle}"><code style="${codeStyle}">${escapeHtml(v.name)}</code><div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(v.id)}</div></td>
-          <td style="${tdStyle}">${escapeHtml(v.description)}</td>
-          <td style="${tdStyle}">${screenshots || '<span style="color:#aaa">—</span>'}</td>
-          ${modes.map((m) => `<td style="${tdStyle}">${escapeHtml(v.values[m] ?? '')}</td>`).join('')}
-          <td style="${tdStyle}">${escapeHtml(v.frames.join(', '))}</td>
-        </tr>`);
+      rows.push(`<tr>${frameTd}${screenshotTd}${nameTd}${descTd}${modeTds}</tr>`);
     }
   }
 
@@ -99,52 +143,28 @@ function buildSectionTable(
 </table>`;
 }
 
+// ── Styles ───────────────────────────────────────────────────────────────────
+
 const bodyStyle = 'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1a1a1a;margin:24px;';
 const h2Style = 'font-size:20px;margin:0 0 8px;';
 const h3Style = 'font-size:15px;margin:24px 0 8px;color:#333;';
 const pStyle = 'color:#555;margin:0 0 12px;';
 const tableStyle = 'border-collapse:collapse;width:100%;border:1px solid #ddd;font-size:13px;margin-bottom:12px;';
 const thStyle = 'text-align:left;background:#f5f5f5;border:1px solid #ddd;padding:8px 10px;font-weight:600;';
-const tdStyle = 'border:1px solid #ddd;padding:8px 10px;vertical-align:top;';
-const groupRowStyle = 'border:1px solid #ddd;background:#fafafa;padding:6px 10px;font-size:12px;color:#666;font-weight:600;';
+const tdStyle = 'border:1px solid #ddd;padding:8px 10px;';
 const codeStyle = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#f5f5f5;padding:1px 4px;border-radius:3px;';
 const imgStyle = 'max-width:280px;width:100%;height:auto;border:1px solid #ddd;border-radius:4px;display:block;';
 
-function renderOccurrence(
-  occ: { topFrameName: string; parentFrameName: string },
-  variableId: string,
-  frameDataUrls: Map<string, string>,
-  perVarDataUrls: Map<string, Map<string, string>>,
-): string {
-  const renderOne = (frameName: string, label: string): string => {
-    const perVarUrl = perVarDataUrls.get(frameName)?.get(variableId);
-    const dataUrl = perVarUrl || frameDataUrls.get(frameName);
-    const sub = `<div style="font-size:10px;color:#888;margin-top:2px"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(frameName)}</div>`;
-    if (!dataUrl) {
-      return `<div style="margin-bottom:6px"><code style="${codeStyle}">frames/${escapeHtml(sanitize(frameName))}.png</code>${sub}</div>`;
-    }
-    return `<div style="margin-bottom:6px"><img alt="${escapeHtml(frameName)}" src="${dataUrl}" style="${imgStyle}"/>${sub}</div>`;
-  };
-
-  // Skip parent if same as top — no benefit to a duplicate image.
-  const showParent = occ.parentFrameName && occ.parentFrameName !== occ.topFrameName;
-  const parentBlock = showParent ? renderOne(occ.parentFrameName, 'In context') : '';
-  const topBlock = renderOne(occ.topFrameName, 'Full frame');
-  // Tighter (parent) first, full second.
-  return `<div style="border-bottom:1px dashed #eee;padding-bottom:6px;margin-bottom:8px">${parentBlock}${topBlock}</div>`;
-}
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function bytesToDataUrl(bytes: Uint8Array): string {
-  // Build a base64 string in chunks to avoid the call-stack limit on
-  // String.fromCharCode(...new Uint8Array(big)).
   const CHUNK = 0x8000;
   let binary = '';
   for (let i = 0; i < bytes.length; i += CHUNK) {
     const chunk = bytes.subarray(i, i + CHUNK);
     binary += String.fromCharCode.apply(null, Array.from(chunk));
   }
-  const b64 = btoa(binary);
-  return `data:image/png;base64,${b64}`;
+  return `data:image/png;base64,${btoa(binary)}`;
 }
 
 function escapeHtml(s: string): string {
