@@ -25,21 +25,17 @@ copy-sync-<file>-<timestamp>.zip
 
 ## Setup
 
-Prereqs: Node 20+, Figma desktop app, Figma plan that supports **string variables** (Professional or Organization).
+Prereqs: Figma desktop app, Figma plan that supports **string variables** (Professional or Organization).
 
-```bash
-npm install
-npm run build
-```
+The built plugin is included in the repo — no Node or build step required.
 
----
+1. Download or clone this repo.
+2. In Figma desktop: `Plugins` → `Development` → `Import plugin from manifest…`
+3. Pick `figma-plugin/manifest.json`.
+4. Open the file you want to export.
+5. Run `Plugins` → `Development` → `Copy Sync`.
 
-## Load + run
-
-1. In Figma desktop: `Plugins` → `Development` → `Import plugin from manifest…`
-2. Pick `figma-plugin/manifest.json`.
-3. Open the file you want to export.
-4. Run `Plugins` → `Development` → `Copy Sync`.
+> **For contributors:** Node 20+ required to rebuild after source changes. Run `npm install && npm run build`, then reload the plugin in Figma.
 
 The plugin panel lists every variable collection in the file that contains string variables.
 
