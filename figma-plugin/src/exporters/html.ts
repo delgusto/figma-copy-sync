@@ -117,21 +117,33 @@ function buildFrameTable(
         ? `<td style="${tdStyle};font-weight:500;vertical-align:top;${groupBorder}">${escapeHtml(frameName)}</td>`
         : `<td style="${tdStyle};${groupBorder}"></td>`;
 
-      // Per-variable annotated screenshot on every row (red box around this
-      // variable's text). Falls back to unannotated frame, then disk path.
+      // Per-variable annotated screenshot.
+      // Shows "In context" (parent frame, tight crop) when the parent is a
+      // different frame from the top-level one — this is the useful one for
+      // component instances. Always shows "Full frame" (top-level) below it.
+      // Falls back to unannotated frame PNG, then a plain filename reference.
       let screenshotContent: string;
       if (frameName === NO_FRAME) {
         screenshotContent = '';
       } else {
-        const perVarUrl = perVarDataUrls.get(frameName)?.get(v.id);
-        const fallbackUrl = dataUrl;
-        if (perVarUrl || fallbackUrl) {
-          screenshotContent = `<img alt="${escapeHtml(frameName)}" src="${perVarUrl || fallbackUrl!}" style="${imgStyle}"/>`;
-        } else if (framePng) {
-          screenshotContent = `<code style="${codeStyle}">frames/${escapeHtml(sanitize(framePng.filename))}</code>`;
-        } else {
-          screenshotContent = `<span style="color:#aaa">no screenshot</span>`;
-        }
+        // Find the occurrence that places this variable in this top frame.
+        const occ = v.occurrences.find((o) => o.topFrameName === frameName);
+        const parentName = occ && occ.parentFrameName !== frameName ? occ.parentFrameName : null;
+
+        const renderShot = (name: string, label: string): string => {
+          const perVarUrl = perVarDataUrls.get(name)?.get(v.id);
+          const fallback = frameDataUrls.get(name);
+          const url = perVarUrl || fallback;
+          const sub = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(label)}</div>`;
+          if (url) return `<div style="margin-bottom:6px"><img alt="${escapeHtml(name)}" src="${url}" style="${imgStyle}"/>${sub}</div>`;
+          const png = framePngs.find((f) => f.name === name);
+          if (png) return `<div style="margin-bottom:6px"><code style="${codeStyle}">frames/${escapeHtml(sanitize(png.filename))}</code>${sub}</div>`;
+          return '';
+        };
+
+        const parentBlock = parentName ? renderShot(parentName, 'In context') : '';
+        const topBlock = renderShot(frameName, 'Full frame');
+        screenshotContent = parentBlock + topBlock || `<span style="color:#aaa">no screenshot</span>`;
       }
       const screenshotTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}">${screenshotContent}</td>`;
 

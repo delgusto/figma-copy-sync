@@ -41505,15 +41505,21 @@ ${sections.join("\n")}
         if (frameName === NO_FRAME) {
           screenshotContent = "";
         } else {
-          const perVarUrl = perVarDataUrls.get(frameName)?.get(v.id);
-          const fallbackUrl = dataUrl;
-          if (perVarUrl || fallbackUrl) {
-            screenshotContent = `<img alt="${escapeHtml(frameName)}" src="${perVarUrl || fallbackUrl}" style="${imgStyle}"/>`;
-          } else if (framePng) {
-            screenshotContent = `<code style="${codeStyle}">frames/${escapeHtml(sanitize2(framePng.filename))}</code>`;
-          } else {
-            screenshotContent = `<span style="color:#aaa">no screenshot</span>`;
-          }
+          const occ = v.occurrences.find((o) => o.topFrameName === frameName);
+          const parentName = occ && occ.parentFrameName !== frameName ? occ.parentFrameName : null;
+          const renderShot = (name, label) => {
+            const perVarUrl = perVarDataUrls.get(name)?.get(v.id);
+            const fallback = frameDataUrls.get(name);
+            const url = perVarUrl || fallback;
+            const sub = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(label)}</div>`;
+            if (url) return `<div style="margin-bottom:6px"><img alt="${escapeHtml(name)}" src="${url}" style="${imgStyle}"/>${sub}</div>`;
+            const png = framePngs.find((f) => f.name === name);
+            if (png) return `<div style="margin-bottom:6px"><code style="${codeStyle}">frames/${escapeHtml(sanitize2(png.filename))}</code>${sub}</div>`;
+            return "";
+          };
+          const parentBlock = parentName ? renderShot(parentName, "In context") : "";
+          const topBlock = renderShot(frameName, "Full frame");
+          screenshotContent = parentBlock + topBlock || `<span style="color:#aaa">no screenshot</span>`;
         }
         const screenshotTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}">${screenshotContent}</td>`;
         const nameTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}"><code style="${codeStyle}">${escapeHtml(v.name)}</code><div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(v.id)}</div></td>`;
