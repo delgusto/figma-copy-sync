@@ -120,10 +120,23 @@ function findNearestParentFrame(node: BaseNode): FrameNode | null {
 
 async function buildBindings(selectedVarIds: Set<string>): Promise<Binding[]> {
   const bindings: Binding[] = [];
+  // De-dupe by (variableId + nodeId) so direct-binding and component-property
+  // scans don't produce duplicate rects for the same text node.
+  const seen = new Set<string>();
+
+  function pushBinding(variableId: string, node: TextNode, topFrame: FrameNode, parentFrame: FrameNode) {
+    const key = `${variableId}::${node.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    bindings.push({ variableId, node, topFrame, parentFrame });
+  }
+
   await figma.loadAllPagesAsync();
 
   for (const page of figma.root.children) {
     if (page.type !== 'PAGE') continue;
+
+    // ── Pass 1: direct boundVariables.characters on text nodes ──────────────
     const textNodes = page.findAllWithCriteria({ types: ['TEXT'] });
     for (const node of textNodes) {
       const bound = (node as TextNode).boundVariables;
@@ -137,12 +150,35 @@ async function buildBindings(selectedVarIds: Set<string>): Promise<Binding[]> {
         const topFrame = findTopLevelFrame(node);
         if (!topFrame) continue;
         const parent = findNearestParentFrame(node);
-        bindings.push({
-          variableId: alias.id,
-          node: node as TextNode,
-          topFrame,
-          parentFrame: parent || topFrame,
-        });
+        pushBinding(alias.id, node as TextNode, topFrame, parent || topFrame);
+      }
+    }
+
+    // ── Pass 2: component text properties bound to variables ─────────────────
+    // Handles the case where a text layer inside a library component instance
+    // has its content driven by a component text property (visible in the
+    // instance properties panel), and that property is bound to a local variable.
+    // In this case boundVariables.characters on the text node points to the
+    // component property key, not the variable — Pass 1 misses it.
+    const instances = page.findAllWithCriteria({ types: ['INSTANCE'] });
+    for (const instance of instances) {
+      const props = (instance as InstanceNode).componentProperties;
+      if (!props) continue;
+      for (const [propKey, prop] of Object.entries(props)) {
+        if (prop.type !== 'TEXT') continue;
+        const varAlias = (prop as any).boundVariables?.value;
+        if (!varAlias?.id || !selectedVarIds.has(varAlias.id)) continue;
+        // Find the specific text node inside this instance that this property drives.
+        // componentPropertyReferences.characters === propKey identifies it.
+        const innerText = (instance as InstanceNode).findAllWithCriteria({ types: ['TEXT'] });
+        for (const textNode of innerText) {
+          const refs = (textNode as TextNode).componentPropertyReferences;
+          if (!refs || refs.characters !== propKey) continue;
+          const topFrame = findTopLevelFrame(textNode);
+          if (!topFrame) continue;
+          const parent = findNearestParentFrame(textNode);
+          pushBinding(varAlias.id, textNode as TextNode, topFrame, parent || topFrame);
+        }
       }
     }
   }

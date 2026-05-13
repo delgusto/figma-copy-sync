@@ -110,7 +110,15 @@
   }
   function buildBindings(selectedVarIds) {
     return __async(this, null, function* () {
+      var _a;
       const bindings = [];
+      const seen = /* @__PURE__ */ new Set();
+      function pushBinding(variableId, node, topFrame, parentFrame) {
+        const key = `${variableId}::${node.id}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        bindings.push({ variableId, node, topFrame, parentFrame });
+      }
       yield figma.loadAllPagesAsync();
       for (const page of figma.root.children) {
         if (page.type !== "PAGE") continue;
@@ -127,12 +135,26 @@
             const topFrame = findTopLevelFrame(node);
             if (!topFrame) continue;
             const parent = findNearestParentFrame(node);
-            bindings.push({
-              variableId: alias.id,
-              node,
-              topFrame,
-              parentFrame: parent || topFrame
-            });
+            pushBinding(alias.id, node, topFrame, parent || topFrame);
+          }
+        }
+        const instances = page.findAllWithCriteria({ types: ["INSTANCE"] });
+        for (const instance of instances) {
+          const props = instance.componentProperties;
+          if (!props) continue;
+          for (const [propKey, prop] of Object.entries(props)) {
+            if (prop.type !== "TEXT") continue;
+            const varAlias = (_a = prop.boundVariables) == null ? void 0 : _a.value;
+            if (!(varAlias == null ? void 0 : varAlias.id) || !selectedVarIds.has(varAlias.id)) continue;
+            const innerText = instance.findAllWithCriteria({ types: ["TEXT"] });
+            for (const textNode of innerText) {
+              const refs = textNode.componentPropertyReferences;
+              if (!refs || refs.characters !== propKey) continue;
+              const topFrame = findTopLevelFrame(textNode);
+              if (!topFrame) continue;
+              const parent = findNearestParentFrame(textNode);
+              pushBinding(varAlias.id, textNode, topFrame, parent || topFrame);
+            }
           }
         }
       }
