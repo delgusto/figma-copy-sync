@@ -41473,7 +41473,7 @@
 
   // figma-plugin/src/exporters/html.ts
   var NO_FRAME = "\u2014 (no frame)";
-  function buildHtml(payload, _perVarDataUrls = /* @__PURE__ */ new Map()) {
+  function buildHtml(payload, perVarDataUrls = /* @__PURE__ */ new Map()) {
     const frameDataUrls = /* @__PURE__ */ new Map();
     for (const frame of payload.frames) {
       frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
@@ -41486,7 +41486,7 @@
     }
     for (const [colName, vars] of byCollection) {
       sections.push(`<h3 style="${h3Style}">${escapeHtml(colName)}</h3>`);
-      sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, payload.frames));
+      sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, perVarDataUrls, payload.frames));
     }
     const varCount = payload.variables.length;
     const frameCount = payload.frames.length;
@@ -41498,7 +41498,7 @@
 ${sections.join("\n")}
 </body></html>`;
   }
-  function buildFrameTable(vars, modes, frameDataUrls, framePngs) {
+  function buildFrameTable(vars, modes, frameDataUrls, perVarDataUrls, framePngs) {
     const frameGroups = /* @__PURE__ */ new Map();
     for (const v of vars) {
       const topFrameNames = v.occurrences.length ? Array.from(new Set(v.occurrences.map((o) => o.topFrameName))) : [];
@@ -41533,14 +41533,18 @@ ${sections.join("\n")}
         const groupBorder = isFirst ? "border-top:2px solid #ccc;" : "";
         const frameTd = isFirst ? `<td style="${tdStyle};font-weight:500;vertical-align:top;${groupBorder}">${escapeHtml(frameName)}</td>` : `<td style="${tdStyle};${groupBorder}"></td>`;
         let screenshotContent;
-        if (!isFirst) {
+        if (frameName === NO_FRAME) {
           screenshotContent = "";
-        } else if (dataUrl) {
-          screenshotContent = `<img alt="${escapeHtml(frameName)}" src="${dataUrl}" style="${imgStyle}"/>`;
-        } else if (framePng) {
-          screenshotContent = `<code style="${codeStyle}">frames/${escapeHtml(sanitize2(framePng.filename))}</code>`;
         } else {
-          screenshotContent = frameName !== NO_FRAME ? `<span style="color:#aaa">no screenshot</span>` : "";
+          const perVarUrl = perVarDataUrls.get(frameName)?.get(v.id);
+          const fallbackUrl = dataUrl;
+          if (perVarUrl || fallbackUrl) {
+            screenshotContent = `<img alt="${escapeHtml(frameName)}" src="${perVarUrl || fallbackUrl}" style="${imgStyle}"/>`;
+          } else if (framePng) {
+            screenshotContent = `<code style="${codeStyle}">frames/${escapeHtml(sanitize2(framePng.filename))}</code>`;
+          } else {
+            screenshotContent = `<span style="color:#aaa">no screenshot</span>`;
+          }
         }
         const screenshotTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}">${screenshotContent}</td>`;
         const nameTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}"><code style="${codeStyle}">${escapeHtml(v.name)}</code><div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(v.id)}</div></td>`;

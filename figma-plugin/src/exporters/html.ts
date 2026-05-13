@@ -6,8 +6,10 @@ import type { ExportPayload, FramePng, VariableEntry } from '../types';
 //
 // Layout: frame-centric rows.
 //   - Grouped by top-level frame (one group per frame per collection).
-//   - First row of each group: frame name + screenshot + first variable.
-//   - Subsequent rows: empty frame/screenshot cells + next variable.
+//   - First row of each group: frame name + first variable + per-var screenshot.
+//   - Subsequent rows: empty frame cell + next variable + per-var screenshot.
+//   - Screenshot shows red highlight for that specific variable (or falls back
+//     to the unannotated full frame if no annotation was generated).
 //   - No rowspan — Confluence-safe.
 //   - Variables with no frame binding: "— (no frame)" group at the bottom.
 
@@ -15,10 +17,9 @@ const NO_FRAME = '— (no frame)';
 
 export function buildHtml(
   payload: ExportPayload,
-  // perVarDataUrls retained for API compat but unused in frame-centric layout.
-  _perVarDataUrls: Map<string, Map<string, string>> = new Map(),
+  perVarDataUrls: Map<string, Map<string, string>> = new Map(),
 ): string {
-  // Unannotated frame data URL keyed by frame name — shown once per frame group.
+  // Unannotated frame data URL — fallback when no per-var annotation exists.
   const frameDataUrls = new Map<string, string>();
   for (const frame of payload.frames) {
     frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
@@ -35,7 +36,7 @@ export function buildHtml(
 
   for (const [colName, vars] of byCollection) {
     sections.push(`<h3 style="${h3Style}">${escapeHtml(colName)}</h3>`);
-    sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, payload.frames));
+    sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, perVarDataUrls, payload.frames));
   }
 
   const varCount = payload.variables.length;
@@ -54,6 +55,7 @@ function buildFrameTable(
   vars: VariableEntry[],
   modes: string[],
   frameDataUrls: Map<string, string>,
+  perVarDataUrls: Map<string, Map<string, string>>,
   framePngs: FramePng[],
 ): string {
   // Build Map<frameName, VariableEntry[]> — frame-centric grouping.
@@ -115,15 +117,21 @@ function buildFrameTable(
         ? `<td style="${tdStyle};font-weight:500;vertical-align:top;${groupBorder}">${escapeHtml(frameName)}</td>`
         : `<td style="${tdStyle};${groupBorder}"></td>`;
 
+      // Per-variable annotated screenshot on every row (red box around this
+      // variable's text). Falls back to unannotated frame, then disk path.
       let screenshotContent: string;
-      if (!isFirst) {
+      if (frameName === NO_FRAME) {
         screenshotContent = '';
-      } else if (dataUrl) {
-        screenshotContent = `<img alt="${escapeHtml(frameName)}" src="${dataUrl}" style="${imgStyle}"/>`;
-      } else if (framePng) {
-        screenshotContent = `<code style="${codeStyle}">frames/${escapeHtml(sanitize(framePng.filename))}</code>`;
       } else {
-        screenshotContent = frameName !== NO_FRAME ? `<span style="color:#aaa">no screenshot</span>` : '';
+        const perVarUrl = perVarDataUrls.get(frameName)?.get(v.id);
+        const fallbackUrl = dataUrl;
+        if (perVarUrl || fallbackUrl) {
+          screenshotContent = `<img alt="${escapeHtml(frameName)}" src="${perVarUrl || fallbackUrl!}" style="${imgStyle}"/>`;
+        } else if (framePng) {
+          screenshotContent = `<code style="${codeStyle}">frames/${escapeHtml(sanitize(framePng.filename))}</code>`;
+        } else {
+          screenshotContent = `<span style="color:#aaa">no screenshot</span>`;
+        }
       }
       const screenshotTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}">${screenshotContent}</td>`;
 
