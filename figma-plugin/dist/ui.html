@@ -41762,6 +41762,9 @@ ${sections.join("\n")}
   function App() {
     const [collections, setCollections] = (0, import_react.useState)([]);
     const [selected, setSelected] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+    const [pages, setPages] = (0, import_react.useState)([]);
+    const [selectedPages, setSelectedPages] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+    const [exportScale, setExportScale] = (0, import_react.useState)(2);
     const [initialised, setInitialised] = (0, import_react.useState)(false);
     const [toast, setToast] = (0, import_react.useState)(null);
     const [progress, setProgress] = (0, import_react.useState)({ phase: "idle", current: 0, total: 0 });
@@ -41785,6 +41788,7 @@ ${sections.join("\n")}
         if (!msg) return;
         if (msg.type === "init") {
           setCollections(msg.collections);
+          setPages(msg.pages);
           const ids = /* @__PURE__ */ new Set();
           if (msg.persistedSelection && msg.persistedSelection.length) {
             for (const id of msg.persistedSelection) {
@@ -41796,6 +41800,15 @@ ${sections.join("\n")}
             }
           }
           setSelected(ids);
+          const pageIds = /* @__PURE__ */ new Set();
+          if (msg.persistedPageSelection && msg.persistedPageSelection.length) {
+            for (const id of msg.persistedPageSelection) {
+              if (msg.pages.some((p) => p.id === id)) pageIds.add(id);
+            }
+          } else {
+            for (const p of msg.pages) pageIds.add(p.id);
+          }
+          setSelectedPages(pageIds);
           setInitialised(true);
         } else if (msg.type === "progress") {
           setProgress({ phase: msg.phase, current: msg.current, total: msg.total, label: msg.label });
@@ -41833,9 +41846,21 @@ ${sections.join("\n")}
       setSelected(next);
       send({ type: "persist-selection", selectedCollectionIds: Array.from(next) });
     }
+    function togglePage(id) {
+      const next = new Set(selectedPages);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      setSelectedPages(next);
+      send({ type: "persist-page-selection", selectedPageIds: Array.from(next) });
+    }
     function exportNow() {
       setProgress({ phase: "scanning", current: 0, total: 0, label: "Starting\u2026" });
-      send({ type: "export", selectedCollectionIds: Array.from(selected) });
+      send({
+        type: "export",
+        selectedCollectionIds: Array.from(selected),
+        selectedPageIds: Array.from(selectedPages),
+        exportScale
+      });
     }
     function handleImportFileChange(e) {
       const file = e.target.files?.[0];
@@ -41868,6 +41893,10 @@ ${sections.join("\n")}
     const isWorking = progress.phase === "scanning" || progress.phase === "exporting-frames" || progress.phase === "building-bundle";
     const isImporting = importState === "applying";
     const importModeNames = importUpdates.length ? Object.keys(importUpdates[0].modeValues) : [];
+    const estimatedFrames = (0, import_react.useMemo)(
+      () => pages.filter((p) => selectedPages.has(p.id)).reduce((acc, p) => acc + p.frameCount, 0),
+      [pages, selectedPages]
+    );
     if (importState === "results" && importResult) {
       const { updated, skippedNames, modeErrors } = importResult;
       const hasIssues = skippedNames.length > 0 || modeErrors.length > 0;
@@ -41958,7 +41987,23 @@ ${sections.join("\n")}
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "String" }),
         " variables, then refresh."
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { overflowY: "auto", maxHeight: 220 }, children: collections.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
+        pages.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Pages" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { overflowY: "auto", maxHeight: 140 }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: selectedPages.has(p.id), onChange: () => togglePage(p.id), disabled: isWorking || isImporting }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }, children: p.name }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--text-secondary)" }, children: [
+                "~",
+                p.frameCount,
+                " frame",
+                p.frameCount === 1 ? "" : "s"
+              ] })
+            ] })
+          ] }, p.id)) })
+        ] }),
+        pages.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Collections" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { overflowY: "auto", maxHeight: 160 }, children: collections.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: selected.has(c.id), onChange: () => toggle(c.id), disabled: isWorking || isImporting }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 6, alignItems: "baseline" }, children: [
@@ -41979,7 +42024,7 @@ ${sections.join("\n")}
             totalSelectedStrings === 1 ? "" : "s",
             " selected"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, cursor: "pointer" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6, cursor: "pointer" }, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
               "input",
               {
@@ -41990,6 +42035,30 @@ ${sections.join("\n")}
               }
             ),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 12 }, children: "Highlight copy on screenshots" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, cursor: "pointer" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+              "input",
+              {
+                type: "checkbox",
+                checked: exportScale === 2,
+                onChange: (e) => setExportScale(e.target.checked ? 2 : 1),
+                disabled: isWorking || isImporting
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: 12 }, children: [
+              "2\xD7 screenshots ",
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "var(--text-secondary)" }, children: "(sharper, slower)" })
+            ] })
+          ] }),
+          estimatedFrames > 20 && !isWorking && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--warning, #f90)", marginBottom: 8 }, children: [
+            "\u26A0 ~",
+            estimatedFrames,
+            " frames across ",
+            pages.filter((p) => selectedPages.has(p.id)).length,
+            " page",
+            pages.filter((p) => selectedPages.has(p.id)).length === 1 ? "" : "s",
+            " \u2014 may take a few minutes"
           ] }),
           isWorking && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: 10 }, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, marginBottom: 4 }, children: [
@@ -42043,6 +42112,7 @@ ${sections.join("\n")}
     return "var(--bg-secondary)";
   }
   var headerWrap = { padding: "10px 12px", borderBottom: "1px solid var(--border)" };
+  var sectionLabel = { padding: "6px 12px 2px", fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--text-secondary)", borderTop: "1px solid var(--border)" };
   var refreshBtn = { flexShrink: 0, padding: "4px 8px", border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", borderRadius: 6, cursor: "pointer", fontSize: 11 };
   var rowStyle = { display: "flex", gap: 10, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border)" };
   var pill = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--text-secondary)", background: "var(--border)", padding: "1px 6px", borderRadius: 999 };

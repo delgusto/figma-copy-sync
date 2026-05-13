@@ -7,6 +7,12 @@ export interface CollectionInfo {
   isCopyByDefault: boolean; // name starts with "Copy"
 }
 
+export interface PageInfo {
+  id: string;
+  name: string;
+  frameCount: number; // top-level FRAME children (indicative)
+}
+
 export interface Occurrence {
   topFrameName: string;     // top-level frame on the page
   parentFrameName: string;  // nearest FRAME ancestor of the text node (==topFrameName if none nested)
@@ -63,7 +69,7 @@ export interface ExportPayload {
 
 // Plugin -> UI messages.
 export type PluginToUiMessage =
-  | { type: 'init'; collections: CollectionInfo[]; persistedSelection: string[] | null }
+  | { type: 'init'; collections: CollectionInfo[]; pages: PageInfo[]; persistedSelection: string[] | null; persistedPageSelection: string[] | null }
   | { type: 'progress'; phase: 'scanning' | 'exporting-frames' | 'building-bundle'; current: number; total: number; label?: string }
   | { type: 'export-result'; payload: ExportPayload }
   | { type: 'toast'; level: 'info' | 'error' | 'success'; text: string }
@@ -79,8 +85,9 @@ export interface ImportUpdate {
 
 // UI -> plugin messages.
 export type UiToPluginMessage =
-  | { type: 'export'; selectedCollectionIds: string[] }
+  | { type: 'export'; selectedCollectionIds: string[]; selectedPageIds: string[]; exportScale: 1 | 2 }
   | { type: 'persist-selection'; selectedCollectionIds: string[] }
+  | { type: 'persist-page-selection'; selectedPageIds: string[] }
   | { type: 'refresh' }
   | { type: 'cancel' }
   | { type: 'import'; updates: ImportUpdate[] };

@@ -7,14 +7,14 @@ import type {
   ExportPayload,
   FramePng,
   ImportUpdate,
+  PageInfo,
   PluginToUiMessage,
   UiToPluginMessage,
   VariableEntry,
 } from './types';
 
-const EXPORT_SCALE = 2;
-
 const PLUGIN_DATA_KEY_SELECTION = 'copyCollections';
+const PLUGIN_DATA_KEY_PAGES = 'copyPages';
 const SKIP_PREFIX = '[skip]';
 
 figma.showUI(__html__, { width: 380, height: 480, themeColors: true });
@@ -59,13 +59,43 @@ function persistSelection(ids: string[]) {
   figma.root.setPluginData(PLUGIN_DATA_KEY_SELECTION, JSON.stringify(ids));
 }
 
+function readPersistedPageSelection(): string[] | null {
+  const raw = figma.root.getPluginData(PLUGIN_DATA_KEY_PAGES);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function persistPageSelection(ids: string[]) {
+  figma.root.setPluginData(PLUGIN_DATA_KEY_PAGES, JSON.stringify(ids));
+}
+
+function getPageInfos(): PageInfo[] {
+  // Synchronous — no loadAllPagesAsync needed. page.children is available
+  // before the page content is loaded (returns top-level children only).
+  return figma.root.children
+    .filter((n) => n.type === 'PAGE')
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      frameCount: (p as PageNode).children.filter((c) => c.type === 'FRAME').length,
+    }));
+}
+
 async function pushInit() {
   try {
     const collections = await getCollectionsWithStringVars();
+    const pages = getPageInfos();
     postToUi({
       type: 'init',
       collections,
+      pages,
       persistedSelection: readPersistedSelection(),
+      persistedPageSelection: readPersistedPageSelection(),
     });
   } catch (err) {
     postToUi({ type: 'toast', level: 'error', text: `Failed to read variables: ${stringifyError(err)}` });
@@ -118,7 +148,7 @@ function findNearestParentFrame(node: BaseNode): FrameNode | null {
   return null;
 }
 
-async function buildBindings(selectedVarIds: Set<string>): Promise<Binding[]> {
+async function buildBindings(selectedVarIds: Set<string>, selectedPageIds: Set<string>): Promise<Binding[]> {
   const bindings: Binding[] = [];
   // De-dupe by (variableId + nodeId) so direct-binding and component-property
   // scans don't produce duplicate rects for the same text node.
@@ -131,10 +161,21 @@ async function buildBindings(selectedVarIds: Set<string>): Promise<Binding[]> {
     bindings.push({ variableId, node, topFrame, parentFrame });
   }
 
-  await figma.loadAllPagesAsync();
+  const pages = figma.root.children.filter(
+    (n) => n.type === 'PAGE' && selectedPageIds.has(n.id),
+  ) as PageNode[];
 
-  for (const page of figma.root.children) {
-    if (page.type !== 'PAGE') continue;
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    postToUi({
+      type: 'progress',
+      phase: 'scanning',
+      current: i + 1,
+      total: pages.length,
+      label: `Scanning "${page.name}"…`,
+    });
+    // Load only this page's content — avoids loading the whole file.
+    await page.loadAsync();
 
     // ── Pass 1: direct boundVariables.characters on text nodes ──────────────
     const textNodes = page.findAllWithCriteria({ types: ['TEXT'] });
@@ -201,6 +242,7 @@ async function exportFrames(
   frames: FrameNode[],
   bindings: Binding[],
   varNameById: Map<string, string>,
+  exportScale: 1 | 2,
 ): Promise<{ pngs: FramePng[]; nameByFrameId: Map<string, string> }> {
   // Display-name uniqueness. Two passes:
   //   1. If the raw name collides at all, suffix with the page name.
@@ -252,7 +294,7 @@ async function exportFrames(
 
     const bytes = await frame.exportAsync({
       format: 'PNG',
-      constraint: { type: 'SCALE', value: EXPORT_SCALE },
+      constraint: { type: 'SCALE', value: exportScale },
     });
 
     const frameBox = frame.absoluteBoundingBox;
@@ -275,10 +317,10 @@ async function exportFrames(
         rects.push({
           variableId: b.variableId,
           variableName: varNameById.get(b.variableId) || b.variableId,
-          x: x * EXPORT_SCALE,
-          y: y * EXPORT_SCALE,
-          w: w * EXPORT_SCALE,
-          h: h * EXPORT_SCALE,
+          x: x * exportScale,
+          y: y * exportScale,
+          w: w * exportScale,
+          h: h * exportScale,
         });
       }
     }
@@ -288,8 +330,8 @@ async function exportFrames(
       name: nameByFrameId.get(frame.id) || frame.name,
       pageName: (frame.parent && frame.parent.type === 'PAGE') ? frame.parent.name : '',
       bytes,
-      width: frameBox ? Math.round(frameBox.width * EXPORT_SCALE) : 0,
-      height: frameBox ? Math.round(frameBox.height * EXPORT_SCALE) : 0,
+      width: frameBox ? Math.round(frameBox.width * exportScale) : 0,
+      height: frameBox ? Math.round(frameBox.height * exportScale) : 0,
       rects,
     });
   }
@@ -306,14 +348,19 @@ function groupOf(fullName: string): string {
   return idx === -1 ? '' : fullName.slice(0, idx);
 }
 
-async function runExport(selectedCollectionIds: string[]) {
+async function runExport(selectedCollectionIds: string[], selectedPageIds: string[], exportScale: 1 | 2) {
   try {
     if (selectedCollectionIds.length === 0) {
       postToUi({ type: 'toast', level: 'error', text: 'Pick at least one collection to export.' });
       return;
     }
+    if (selectedPageIds.length === 0) {
+      postToUi({ type: 'toast', level: 'error', text: 'Pick at least one page to export.' });
+      return;
+    }
 
     persistSelection(selectedCollectionIds);
+    persistPageSelection(selectedPageIds);
 
     postToUi({ type: 'progress', phase: 'scanning', current: 0, total: 0, label: 'Reading variables…' });
 
@@ -348,10 +395,9 @@ async function runExport(selectedCollectionIds: string[]) {
       return;
     }
 
-    postToUi({ type: 'progress', phase: 'scanning', current: 0, total: 0, label: 'Mapping variables to frames…' });
     const selectedIds = new Set(selectedVars.map((v) => v.id));
     const varNameById = new Map(selectedVars.map((v) => [v.id, v.name]));
-    const bindings = await buildBindings(selectedIds);
+    const bindings = await buildBindings(selectedIds, new Set(selectedPageIds));
 
     // Group bindings by variable id for entry construction.
     const bindingsByVar = new Map<string, Binding[]>();
@@ -369,7 +415,7 @@ async function runExport(selectedCollectionIds: string[]) {
     const framesSorted = Array.from(allFrames.values()).sort((a, b) => a.name.localeCompare(b.name));
 
     const exportResult = framesSorted.length
-      ? await exportFrames(framesSorted, bindings, varNameById)
+      ? await exportFrames(framesSorted, bindings, varNameById, exportScale)
       : { pngs: [] as FramePng[], nameByFrameId: new Map<string, string>() };
     const { pngs: framePngs, nameByFrameId } = exportResult;
 
@@ -514,11 +560,15 @@ async function runImport(updates: ImportUpdate[]) {
 
 figma.ui.onmessage = (msg: UiToPluginMessage) => {
   if (msg.type === 'export') {
-    runExport(msg.selectedCollectionIds);
+    runExport(msg.selectedCollectionIds, msg.selectedPageIds, msg.exportScale);
     return;
   }
   if (msg.type === 'persist-selection') {
     persistSelection(msg.selectedCollectionIds);
+    return;
+  }
+  if (msg.type === 'persist-page-selection') {
+    persistPageSelection(msg.selectedPageIds);
     return;
   }
   if (msg.type === 'refresh') {

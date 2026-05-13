@@ -5,6 +5,7 @@ import type {
   CollectionInfo,
   ExportPayload,
   ImportUpdate,
+  PageInfo,
   PluginToUiMessage,
   UiToPluginMessage,
 } from './types';
@@ -83,6 +84,9 @@ function parseImportXlsx(buffer: ArrayBuffer): ImportUpdate[] {
 function App() {
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [pages, setPages] = useState<PageInfo[]>([]);
+  const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
+  const [exportScale, setExportScale] = useState<1 | 2>(2);
   const [initialised, setInitialised] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const [progress, setProgress] = useState<ProgressState>({ phase: 'idle', current: 0, total: 0 });
@@ -109,6 +113,9 @@ function App() {
 
       if (msg.type === 'init') {
         setCollections(msg.collections);
+        setPages(msg.pages);
+
+        // Restore collection selection
         const ids = new Set<string>();
         if (msg.persistedSelection && msg.persistedSelection.length) {
           for (const id of msg.persistedSelection) {
@@ -120,6 +127,18 @@ function App() {
           }
         }
         setSelected(ids);
+
+        // Restore page selection — default: all pages selected
+        const pageIds = new Set<string>();
+        if (msg.persistedPageSelection && msg.persistedPageSelection.length) {
+          for (const id of msg.persistedPageSelection) {
+            if (msg.pages.some((p) => p.id === id)) pageIds.add(id);
+          }
+        } else {
+          for (const p of msg.pages) pageIds.add(p.id);
+        }
+        setSelectedPages(pageIds);
+
         setInitialised(true);
       } else if (msg.type === 'progress') {
         setProgress({ phase: msg.phase, current: msg.current, total: msg.total, label: msg.label });
@@ -161,9 +180,21 @@ function App() {
     send({ type: 'persist-selection', selectedCollectionIds: Array.from(next) });
   }
 
+  function togglePage(id: string) {
+    const next = new Set(selectedPages);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedPages(next);
+    send({ type: 'persist-page-selection', selectedPageIds: Array.from(next) });
+  }
+
   function exportNow() {
     setProgress({ phase: 'scanning', current: 0, total: 0, label: 'Starting…' });
-    send({ type: 'export', selectedCollectionIds: Array.from(selected) });
+    send({
+      type: 'export',
+      selectedCollectionIds: Array.from(selected),
+      selectedPageIds: Array.from(selectedPages),
+      exportScale,
+    });
   }
 
   function handleImportFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -200,6 +231,12 @@ function App() {
   const isWorking = progress.phase === 'scanning' || progress.phase === 'exporting-frames' || progress.phase === 'building-bundle';
   const isImporting = importState === 'applying';
   const importModeNames = importUpdates.length ? Object.keys(importUpdates[0].modeValues) : [];
+
+  // Estimated frame count across selected pages — used for the large-file warning.
+  const estimatedFrames = useMemo(
+    () => pages.filter((p) => selectedPages.has(p.id)).reduce((acc, p) => acc + p.frameCount, 0),
+    [pages, selectedPages],
+  );
 
   // ── Import results panel ──
   if (importState === 'results' && importResult) {
@@ -338,8 +375,27 @@ function App() {
         </div>
       ) : (
         <>
-          {/* Cap height so footer rides close to content on short lists */}
-          <div style={{ overflowY: 'auto', maxHeight: 220 }}>
+          {/* ── Pages filter ── */}
+          {pages.length > 1 && (
+            <>
+              <div style={sectionLabel}>Pages</div>
+              <div style={{ overflowY: 'auto', maxHeight: 140 }}>
+                {pages.map((p) => (
+                  <label key={p.id} style={{ ...rowStyle, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={selectedPages.has(p.id)} onChange={() => togglePage(p.id)} disabled={isWorking || isImporting} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{p.name}</span>
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>~{p.frameCount} frame{p.frameCount === 1 ? '' : 's'}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* ── Collections filter ── */}
+          {pages.length > 1 && <div style={sectionLabel}>Collections</div>}
+          <div style={{ overflowY: 'auto', maxHeight: 160 }}>
             {collections.map((c) => (
               <label key={c.id} style={{ ...rowStyle, cursor: 'pointer' }}>
                 <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} disabled={isWorking || isImporting} />
@@ -364,7 +420,7 @@ function App() {
               {totalSelectedStrings} variable{totalSelectedStrings === 1 ? '' : 's'} selected
             </div>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={highlightCopy}
@@ -373,6 +429,22 @@ function App() {
               />
               <span style={{ fontSize: 12 }}>Highlight copy on screenshots</span>
             </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={exportScale === 2}
+                onChange={(e) => setExportScale(e.target.checked ? 2 : 1)}
+                disabled={isWorking || isImporting}
+              />
+              <span style={{ fontSize: 12 }}>2× screenshots <span style={{ color: 'var(--text-secondary)' }}>(sharper, slower)</span></span>
+            </label>
+
+            {estimatedFrames > 20 && !isWorking && (
+              <div style={{ fontSize: 11, color: 'var(--warning, #f90)', marginBottom: 8 }}>
+                ⚠ ~{estimatedFrames} frames across {pages.filter(p => selectedPages.has(p.id)).length} page{pages.filter(p => selectedPages.has(p.id)).length === 1 ? '' : 's'} — may take a few minutes
+              </div>
+            )}
 
             {isWorking && (
               <div style={{ marginBottom: 10 }}>
@@ -436,6 +508,7 @@ function toastBg(level: 'info' | 'error' | 'success'): string {
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 const headerWrap: React.CSSProperties = { padding: '10px 12px', borderBottom: '1px solid var(--border)' };
+const sectionLabel: React.CSSProperties = { padding: '6px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' };
 const refreshBtn: React.CSSProperties = { flexShrink: 0, padding: '4px 8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', borderRadius: 6, cursor: 'pointer', fontSize: 11 };
 const rowStyle: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--border)' };
 // Neutral pill — grey so it doesn't visually compete with the blue Export button

@@ -22,8 +22,8 @@
   };
 
   // figma-plugin/src/main.ts
-  var EXPORT_SCALE = 2;
   var PLUGIN_DATA_KEY_SELECTION = "copyCollections";
+  var PLUGIN_DATA_KEY_PAGES = "copyPages";
   var SKIP_PREFIX = "[skip]";
   figma.showUI(__html__, { width: 380, height: 480, themeColors: true });
   function postToUi(msg) {
@@ -64,14 +64,37 @@
   function persistSelection(ids) {
     figma.root.setPluginData(PLUGIN_DATA_KEY_SELECTION, JSON.stringify(ids));
   }
+  function readPersistedPageSelection() {
+    const raw = figma.root.getPluginData(PLUGIN_DATA_KEY_PAGES);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : null;
+    } catch (_e) {
+      return null;
+    }
+  }
+  function persistPageSelection(ids) {
+    figma.root.setPluginData(PLUGIN_DATA_KEY_PAGES, JSON.stringify(ids));
+  }
+  function getPageInfos() {
+    return figma.root.children.filter((n) => n.type === "PAGE").map((p) => ({
+      id: p.id,
+      name: p.name,
+      frameCount: p.children.filter((c) => c.type === "FRAME").length
+    }));
+  }
   function pushInit() {
     return __async(this, null, function* () {
       try {
         const collections = yield getCollectionsWithStringVars();
+        const pages = getPageInfos();
         postToUi({
           type: "init",
           collections,
-          persistedSelection: readPersistedSelection()
+          pages,
+          persistedSelection: readPersistedSelection(),
+          persistedPageSelection: readPersistedPageSelection()
         });
       } catch (err) {
         postToUi({ type: "toast", level: "error", text: `Failed to read variables: ${stringifyError(err)}` });
@@ -108,7 +131,7 @@
     }
     return null;
   }
-  function buildBindings(selectedVarIds) {
+  function buildBindings(selectedVarIds, selectedPageIds) {
     return __async(this, null, function* () {
       var _a;
       const bindings = [];
@@ -119,9 +142,19 @@
         seen.add(key);
         bindings.push({ variableId, node, topFrame, parentFrame });
       }
-      yield figma.loadAllPagesAsync();
-      for (const page of figma.root.children) {
-        if (page.type !== "PAGE") continue;
+      const pages = figma.root.children.filter(
+        (n) => n.type === "PAGE" && selectedPageIds.has(n.id)
+      );
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        postToUi({
+          type: "progress",
+          phase: "scanning",
+          current: i + 1,
+          total: pages.length,
+          label: `Scanning "${page.name}"\u2026`
+        });
+        yield page.loadAsync();
         const textNodes = page.findAllWithCriteria({ types: ["TEXT"] });
         for (const node of textNodes) {
           const bound = node.boundVariables;
@@ -164,7 +197,7 @@
   function sanitizeFilename(name) {
     return name.replace(/[^a-zA-Z0-9._\- ]/g, "_").replace(/\s+/g, "_").slice(0, 100);
   }
-  function exportFrames(frames, bindings, varNameById) {
+  function exportFrames(frames, bindings, varNameById, exportScale) {
     return __async(this, null, function* () {
       const nameCounts = /* @__PURE__ */ new Map();
       for (const f of frames) nameCounts.set(f.name, (nameCounts.get(f.name) || 0) + 1);
@@ -205,7 +238,7 @@
         usedFilenames.add(candidate);
         const bytes = yield frame.exportAsync({
           format: "PNG",
-          constraint: { type: "SCALE", value: EXPORT_SCALE }
+          constraint: { type: "SCALE", value: exportScale }
         });
         const frameBox = frame.absoluteBoundingBox;
         const rects = [];
@@ -224,10 +257,10 @@
             rects.push({
               variableId: b.variableId,
               variableName: varNameById.get(b.variableId) || b.variableId,
-              x: x * EXPORT_SCALE,
-              y: y * EXPORT_SCALE,
-              w: w * EXPORT_SCALE,
-              h: h * EXPORT_SCALE
+              x: x * exportScale,
+              y: y * exportScale,
+              w: w * exportScale,
+              h: h * exportScale
             });
           }
         }
@@ -236,8 +269,8 @@
           name: nameByFrameId.get(frame.id) || frame.name,
           pageName: frame.parent && frame.parent.type === "PAGE" ? frame.parent.name : "",
           bytes,
-          width: frameBox ? Math.round(frameBox.width * EXPORT_SCALE) : 0,
-          height: frameBox ? Math.round(frameBox.height * EXPORT_SCALE) : 0,
+          width: frameBox ? Math.round(frameBox.width * exportScale) : 0,
+          height: frameBox ? Math.round(frameBox.height * exportScale) : 0,
           rects
         });
       }
@@ -252,14 +285,19 @@
     const idx = fullName.lastIndexOf("/");
     return idx === -1 ? "" : fullName.slice(0, idx);
   }
-  function runExport(selectedCollectionIds) {
+  function runExport(selectedCollectionIds, selectedPageIds, exportScale) {
     return __async(this, null, function* () {
       try {
         if (selectedCollectionIds.length === 0) {
           postToUi({ type: "toast", level: "error", text: "Pick at least one collection to export." });
           return;
         }
+        if (selectedPageIds.length === 0) {
+          postToUi({ type: "toast", level: "error", text: "Pick at least one page to export." });
+          return;
+        }
         persistSelection(selectedCollectionIds);
+        persistPageSelection(selectedPageIds);
         postToUi({ type: "progress", phase: "scanning", current: 0, total: 0, label: "Reading variables\u2026" });
         const collectionById = /* @__PURE__ */ new Map();
         for (const colId of selectedCollectionIds) {
@@ -284,10 +322,9 @@
           postToUi({ type: "toast", level: "info", text: "No copy variables found in the selected collections." });
           return;
         }
-        postToUi({ type: "progress", phase: "scanning", current: 0, total: 0, label: "Mapping variables to frames\u2026" });
         const selectedIds = new Set(selectedVars.map((v) => v.id));
         const varNameById = new Map(selectedVars.map((v) => [v.id, v.name]));
-        const bindings = yield buildBindings(selectedIds);
+        const bindings = yield buildBindings(selectedIds, new Set(selectedPageIds));
         const bindingsByVar = /* @__PURE__ */ new Map();
         for (const b of bindings) {
           if (!bindingsByVar.has(b.variableId)) bindingsByVar.set(b.variableId, []);
@@ -299,7 +336,7 @@
           allFrames.set(b.parentFrame.id, b.parentFrame);
         }
         const framesSorted = Array.from(allFrames.values()).sort((a, b) => a.name.localeCompare(b.name));
-        const exportResult = framesSorted.length ? yield exportFrames(framesSorted, bindings, varNameById) : { pngs: [], nameByFrameId: /* @__PURE__ */ new Map() };
+        const exportResult = framesSorted.length ? yield exportFrames(framesSorted, bindings, varNameById, exportScale) : { pngs: [], nameByFrameId: /* @__PURE__ */ new Map() };
         const { pngs: framePngs, nameByFrameId } = exportResult;
         const entries = selectedVars.map((v) => {
           const col = collectionById.get(v.variableCollectionId);
@@ -425,11 +462,15 @@
   }
   figma.ui.onmessage = (msg) => {
     if (msg.type === "export") {
-      runExport(msg.selectedCollectionIds);
+      runExport(msg.selectedCollectionIds, msg.selectedPageIds, msg.exportScale);
       return;
     }
     if (msg.type === "persist-selection") {
       persistSelection(msg.selectedCollectionIds);
+      return;
+    }
+    if (msg.type === "persist-page-selection") {
+      persistPageSelection(msg.selectedPageIds);
       return;
     }
     if (msg.type === "refresh") {
