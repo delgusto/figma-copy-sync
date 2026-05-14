@@ -18,11 +18,18 @@ const NO_FRAME = '— (no frame)';
 export function buildHtml(
   payload: ExportPayload,
   perVarDataUrls: Map<string, Map<string, string>> = new Map(),
+  // confluenceMode: omit embedded images; show frame filenames as text instead.
+  // Confluence strips data: URLs — this version pastes cleanly. Upload
+  // frames/*.png as Confluence page attachments for visual context.
+  confluenceMode = false,
 ): string {
   // Unannotated frame data URL — fallback when no per-var annotation exists.
+  // Not used in confluenceMode (no images embedded).
   const frameDataUrls = new Map<string, string>();
-  for (const frame of payload.frames) {
-    frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
+  if (!confluenceMode) {
+    for (const frame of payload.frames) {
+      frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
+    }
   }
 
   const sections: string[] = [];
@@ -36,17 +43,22 @@ export function buildHtml(
 
   for (const [colName, vars] of byCollection) {
     sections.push(`<h3 style="${h3Style}">${escapeHtml(colName)}</h3>`);
-    sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, perVarDataUrls, payload.frames));
+    sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, confluenceMode ? new Map() : perVarDataUrls, payload.frames, confluenceMode));
   }
 
   const varCount = payload.variables.length;
   const frameCount = payload.frames.length;
+
+  const confluenceNote = confluenceMode
+    ? `<p style="${pStyle};background:#fffbe6;border:1px solid #ffe58f;padding:8px 10px;border-radius:4px"><strong>Confluence version</strong> — images replaced with filenames. Upload <code>frames/*.png</code> as Confluence page attachments, then images will appear.</p>`
+    : '';
 
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${escapeHtml(payload.fileName)} — Copy Sync export</title></head>
 <body style="${bodyStyle}">
 <h2 style="${h2Style}">${escapeHtml(payload.fileName)} — UX copy</h2>
 <p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} · ${varCount} string${varCount === 1 ? '' : 's'} · ${frameCount} frame${frameCount === 1 ? '' : 's'} · modes: ${payload.modes.map(escapeHtml).join(', ')}</p>
+${confluenceNote}
 ${sections.join('\n')}
 </body></html>`;
 }
@@ -57,6 +69,7 @@ function buildFrameTable(
   frameDataUrls: Map<string, string>,
   perVarDataUrls: Map<string, Map<string, string>>,
   framePngs: FramePng[],
+  confluenceMode = false,
 ): string {
   // Build Map<frameName, VariableEntry[]> — frame-centric grouping.
   // A variable with N distinct top frames appears in N groups (correct).
@@ -131,12 +144,17 @@ function buildFrameTable(
         const parentName = occ && occ.parentFrameName !== frameName ? occ.parentFrameName : null;
 
         const renderShot = (name: string, label: string): string => {
+          const sub = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(label)}</div>`;
+          const png = framePngs.find((f) => f.name === name);
+          if (confluenceMode) {
+            // No data: URLs — show filename so the user knows which attachment to upload.
+            const ref = png ? `frames/${escapeHtml(sanitize(png.filename))}` : escapeHtml(name);
+            return `<div style="margin-bottom:6px"><code style="${codeStyle}">${ref}</code>${sub}</div>`;
+          }
           const perVarUrl = perVarDataUrls.get(name)?.get(v.id);
           const fallback = frameDataUrls.get(name);
           const url = perVarUrl || fallback;
-          const sub = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(label)}</div>`;
           if (url) return `<div style="margin-bottom:6px"><img alt="${escapeHtml(name)}" src="${url}" style="${imgStyle}"/>${sub}</div>`;
-          const png = framePngs.find((f) => f.name === name);
           if (png) return `<div style="margin-bottom:6px"><code style="${codeStyle}">frames/${escapeHtml(sanitize(png.filename))}</code>${sub}</div>`;
           return '';
         };

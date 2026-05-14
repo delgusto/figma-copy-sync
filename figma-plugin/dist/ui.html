@@ -41473,10 +41473,12 @@
 
   // figma-plugin/src/exporters/html.ts
   var NO_FRAME = "\u2014 (no frame)";
-  function buildHtml(payload, perVarDataUrls = /* @__PURE__ */ new Map()) {
+  function buildHtml(payload, perVarDataUrls = /* @__PURE__ */ new Map(), confluenceMode = false) {
     const frameDataUrls = /* @__PURE__ */ new Map();
-    for (const frame of payload.frames) {
-      frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
+    if (!confluenceMode) {
+      for (const frame of payload.frames) {
+        frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
+      }
     }
     const sections = [];
     const byCollection = /* @__PURE__ */ new Map();
@@ -41486,19 +41488,21 @@
     }
     for (const [colName, vars] of byCollection) {
       sections.push(`<h3 style="${h3Style}">${escapeHtml(colName)}</h3>`);
-      sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, perVarDataUrls, payload.frames));
+      sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, confluenceMode ? /* @__PURE__ */ new Map() : perVarDataUrls, payload.frames, confluenceMode));
     }
     const varCount = payload.variables.length;
     const frameCount = payload.frames.length;
+    const confluenceNote = confluenceMode ? `<p style="${pStyle};background:#fffbe6;border:1px solid #ffe58f;padding:8px 10px;border-radius:4px"><strong>Confluence version</strong> \u2014 images replaced with filenames. Upload <code>frames/*.png</code> as Confluence page attachments, then images will appear.</p>` : "";
     return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${escapeHtml(payload.fileName)} \u2014 Copy Sync export</title></head>
 <body style="${bodyStyle}">
 <h2 style="${h2Style}">${escapeHtml(payload.fileName)} \u2014 UX copy</h2>
 <p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} \xB7 ${varCount} string${varCount === 1 ? "" : "s"} \xB7 ${frameCount} frame${frameCount === 1 ? "" : "s"} \xB7 modes: ${payload.modes.map(escapeHtml).join(", ")}</p>
+${confluenceNote}
 ${sections.join("\n")}
 </body></html>`;
   }
-  function buildFrameTable(vars, modes, frameDataUrls, perVarDataUrls, framePngs) {
+  function buildFrameTable(vars, modes, frameDataUrls, perVarDataUrls, framePngs, confluenceMode = false) {
     const frameGroups = /* @__PURE__ */ new Map();
     for (const v of vars) {
       const topFrameNames = v.occurrences.length ? Array.from(new Set(v.occurrences.map((o) => o.topFrameName))) : [];
@@ -41539,12 +41543,16 @@ ${sections.join("\n")}
           const occ = v.occurrences.find((o) => o.topFrameName === frameName);
           const parentName = occ && occ.parentFrameName !== frameName ? occ.parentFrameName : null;
           const renderShot = (name, label) => {
+            const sub = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(label)}</div>`;
+            const png = framePngs.find((f) => f.name === name);
+            if (confluenceMode) {
+              const ref = png ? `frames/${escapeHtml(sanitize2(png.filename))}` : escapeHtml(name);
+              return `<div style="margin-bottom:6px"><code style="${codeStyle}">${ref}</code>${sub}</div>`;
+            }
             const perVarUrl = perVarDataUrls.get(name)?.get(v.id);
             const fallback = frameDataUrls.get(name);
             const url = perVarUrl || fallback;
-            const sub = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(label)}</div>`;
             if (url) return `<div style="margin-bottom:6px"><img alt="${escapeHtml(name)}" src="${url}" style="${imgStyle}"/>${sub}</div>`;
-            const png = framePngs.find((f) => f.name === name);
             if (png) return `<div style="margin-bottom:6px"><code style="${codeStyle}">frames/${escapeHtml(sanitize2(png.filename))}</code>${sub}</div>`;
             return "";
           };
@@ -41683,10 +41691,12 @@ ${sections.join("\n")}
       }
     }
     const html = buildHtml(payload, perVarDataUrls);
+    const htmlConfluence = buildHtml(payload, /* @__PURE__ */ new Map(), true);
     const zip = new import_jszip.default();
     zip.file("strings.json", buildJson(payload));
     zip.file("strings.xlsx", buildXlsx(payload));
     zip.file("strings.html", html);
+    zip.file("strings-confluence.html", htmlConfluence);
     const framesDir = zip.folder("frames");
     if (framesDir) {
       for (const frame of zipFrames) {
@@ -41987,36 +41997,38 @@ ${sections.join("\n")}
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "String" }),
         " variables, then refresh."
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-        pages.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Pages" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { overflowY: "auto", maxHeight: 140 }, children: pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: selectedPages.has(p.id), onChange: () => togglePage(p.id), disabled: isWorking || isImporting }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, overflowY: "auto" }, children: [
+          pages.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Pages" }),
+            pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: selectedPages.has(p.id), onChange: () => togglePage(p.id), disabled: isWorking || isImporting }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }, children: p.name }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--text-secondary)" }, children: [
+                  "~",
+                  p.frameCount,
+                  " frame",
+                  p.frameCount === 1 ? "" : "s"
+                ] })
+              ] })
+            ] }, p.id))
+          ] }),
+          pages.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Collections" }),
+          collections.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: selected.has(c.id), onChange: () => toggle(c.id), disabled: isWorking || isImporting }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }, children: p.name }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 6, alignItems: "baseline" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: c.name }),
+                c.isCopyByDefault && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: pill, children: "auto" })
+              ] }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--text-secondary)" }, children: [
-                "~",
-                p.frameCount,
-                " frame",
-                p.frameCount === 1 ? "" : "s"
+                c.stringVariableCount,
+                " string variable",
+                c.stringVariableCount === 1 ? "" : "s"
               ] })
             ] })
-          ] }, p.id)) })
+          ] }, c.id))
         ] }),
-        pages.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Collections" }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { overflowY: "auto", maxHeight: 160 }, children: collections.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: selected.has(c.id), onChange: () => toggle(c.id), disabled: isWorking || isImporting }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 6, alignItems: "baseline" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: c.name }),
-              c.isCopyByDefault && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: pill, children: "auto" })
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--text-secondary)" }, children: [
-              c.stringVariableCount,
-              " string variable",
-              c.stringVariableCount === 1 ? "" : "s"
-            ] })
-          ] })
-        ] }, c.id)) }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: footer, children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }, children: [
             totalSelectedStrings,

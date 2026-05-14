@@ -44,11 +44,15 @@ export async function buildAndDownloadBundle(
 
   // Build outputs.
   const html = buildHtml(payload, perVarDataUrls);
+  // Confluence-safe version: no embedded images (data: URLs stripped on paste).
+  // Upload frames/*.png as page attachments to get screenshots in Confluence.
+  const htmlConfluence = buildHtml(payload, new Map(), true);
 
   const zip = new JSZip();
   zip.file('strings.json', buildJson(payload));
   zip.file('strings.xlsx', buildXlsx(payload));
   zip.file('strings.html', html);
+  zip.file('strings-confluence.html', htmlConfluence);
 
   const framesDir = zip.folder('frames');
   if (framesDir) {

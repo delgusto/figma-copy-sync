@@ -375,11 +375,12 @@ function App() {
         </div>
       ) : (
         <>
-          {/* ── Pages filter ── */}
-          {pages.length > 1 && (
-            <>
-              <div style={sectionLabel}>Pages</div>
-              <div style={{ overflowY: 'auto', maxHeight: 140 }}>
+          {/* Single scrollable body — pages + collections together, no individual caps */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {/* ── Pages filter ── */}
+            {pages.length > 1 && (
+              <>
+                <div style={sectionLabel}>Pages</div>
                 {pages.map((p) => (
                   <label key={p.id} style={{ ...rowStyle, cursor: 'pointer' }}>
                     <input type="checkbox" checked={selectedPages.has(p.id)} onChange={() => togglePage(p.id)} disabled={isWorking || isImporting} />
@@ -389,13 +390,11 @@ function App() {
                     </div>
                   </label>
                 ))}
-              </div>
-            </>
-          )}
+              </>
+            )}
 
-          {/* ── Collections filter ── */}
-          {pages.length > 1 && <div style={sectionLabel}>Collections</div>}
-          <div style={{ overflowY: 'auto', maxHeight: 160 }}>
+            {/* ── Collections filter ── */}
+            {pages.length > 1 && <div style={sectionLabel}>Collections</div>}
             {collections.map((c) => (
               <label key={c.id} style={{ ...rowStyle, cursor: 'pointer' }}>
                 <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} disabled={isWorking || isImporting} />
