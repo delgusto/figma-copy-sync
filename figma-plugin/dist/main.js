@@ -81,7 +81,9 @@
     return figma.root.children.filter((n) => n.type === "PAGE").map((p) => ({
       id: p.id,
       name: p.name,
-      frameCount: p.children.filter((c) => c.type === "FRAME").length
+      frameCount: p.children.filter(
+        (c) => c.type === "FRAME" || c.type === "COMPONENT" || c.type === "COMPONENT_SET" || c.type === "INSTANCE"
+      ).length
     }));
   }
   function pushInit() {
@@ -122,9 +124,19 @@
   }
   function findNearestParentFrame(node) {
     let cur = node.parent;
+    let closestInstance = null;
+    while (cur) {
+      if (cur.type === "PAGE") break;
+      if (cur.type === "INSTANCE" && !closestInstance) {
+        closestInstance = cur;
+      }
+      cur = cur.parent;
+    }
+    if (closestInstance) return closestInstance;
+    cur = node.parent;
     while (cur) {
       if (cur.type === "PAGE") return null;
-      if (cur.type === "FRAME" || cur.type === "COMPONENT" || cur.type === "INSTANCE") {
+      if (cur.type === "FRAME" || cur.type === "COMPONENT" || cur.type === "COMPONENT_SET") {
         return cur;
       }
       cur = cur.parent;

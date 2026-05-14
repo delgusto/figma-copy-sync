@@ -77,12 +77,16 @@ function persistPageSelection(ids: string[]) {
 function getPageInfos(): PageInfo[] {
   // Synchronous — no loadAllPagesAsync needed. page.children is available
   // before the page content is loaded (returns top-level children only).
+  // Count exportable top-level nodes (FRAME, COMPONENT, COMPONENT_SET, INSTANCE)
+  // since the plugin treats all four as "frames" for export purposes.
   return figma.root.children
     .filter((n) => n.type === 'PAGE')
     .map((p) => ({
       id: p.id,
       name: p.name,
-      frameCount: (p as PageNode).children.filter((c) => c.type === 'FRAME').length,
+      frameCount: (p as PageNode).children.filter(
+        (c) => c.type === 'FRAME' || c.type === 'COMPONENT' || c.type === 'COMPONENT_SET' || c.type === 'INSTANCE',
+      ).length,
     }));
 }
 
@@ -145,12 +149,29 @@ interface Binding {
 }
 
 function findNearestParentFrame(node: BaseNode): FrameNode | null {
-  // Walk up to find the closest FRAME / COMPONENT / INSTANCE that contains this node.
-  // FRAME covers regular + auto-layout frames. COMPONENT/INSTANCE wrap Figma component templates.
+  // Walk up to find a useful "in context" frame for this node.
+  //
+  // Preference: if the node is inside a component INSTANCE, use the closest
+  // INSTANCE ancestor (i.e. the whole card / component, not its library
+  // internals). Inner frames inside a library instance often have transparent
+  // backgrounds or weird crops that produce confusing "in context" screenshots.
+  //
+  // If there's no instance ancestor, fall back to the nearest FRAME / COMPONENT.
   let cur: BaseNode | null = node.parent;
+  let closestInstance: FrameNode | null = null;
+  while (cur) {
+    if (cur.type === 'PAGE') break;
+    if (cur.type === 'INSTANCE' && !closestInstance) {
+      closestInstance = cur as unknown as FrameNode;
+    }
+    cur = cur.parent;
+  }
+  if (closestInstance) return closestInstance;
+
+  cur = node.parent;
   while (cur) {
     if (cur.type === 'PAGE') return null;
-    if (cur.type === 'FRAME' || cur.type === 'COMPONENT' || cur.type === 'INSTANCE') {
+    if (cur.type === 'FRAME' || cur.type === 'COMPONENT' || cur.type === 'COMPONENT_SET') {
       return cur as FrameNode;
     }
     cur = cur.parent;
