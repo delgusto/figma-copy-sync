@@ -116,11 +116,21 @@ figma.on('documentchange', () => {
   }, 800) as unknown) as number;
 });
 
+// Returns the topmost exportable node on a page that contains `node`.
+// Accepts FRAME, COMPONENT, COMPONENT_SET, and INSTANCE — all support
+// exportAsync and absoluteBoundingBox, so any can be exported as PNG.
+// Previously only accepted FRAME, which silently dropped bindings inside
+// component instances placed directly on the canvas.
 function findTopLevelFrame(node: BaseNode): FrameNode | null {
   let cur: BaseNode | null = node;
   while (cur && cur.parent) {
     if (cur.parent.type === 'PAGE') {
-      return cur.type === 'FRAME' ? (cur as FrameNode) : null;
+      return (
+        cur.type === 'FRAME' ||
+        cur.type === 'COMPONENT' ||
+        cur.type === 'COMPONENT_SET' ||
+        cur.type === 'INSTANCE'
+      ) ? (cur as FrameNode) : null;
     }
     cur = cur.parent;
   }

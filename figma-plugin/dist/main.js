@@ -114,7 +114,7 @@
     let cur = node;
     while (cur && cur.parent) {
       if (cur.parent.type === "PAGE") {
-        return cur.type === "FRAME" ? cur : null;
+        return cur.type === "FRAME" || cur.type === "COMPONENT" || cur.type === "COMPONENT_SET" || cur.type === "INSTANCE" ? cur : null;
       }
       cur = cur.parent;
     }
