@@ -190,6 +190,33 @@
             }
           }
         }
+        for (const instance of instances) {
+          let mainComp = null;
+          try {
+            mainComp = yield instance.getMainComponentAsync();
+          } catch (_e) {
+            continue;
+          }
+          if (!mainComp) continue;
+          const compTextNodes = mainComp.findAllWithCriteria({ types: ["TEXT"] });
+          for (const compNode of compTextNodes) {
+            const bound = compNode.boundVariables;
+            if (!bound) continue;
+            const chars = bound.characters;
+            if (!chars) continue;
+            const aliases = Array.isArray(chars) ? chars : [chars];
+            for (const alias of aliases) {
+              if (!(alias == null ? void 0 : alias.id) || !selectedVarIds.has(alias.id)) continue;
+              const instanceTextNodes = instance.findAllWithCriteria({ types: ["TEXT"] });
+              const match = instanceTextNodes.find((t) => t.name === compNode.name);
+              const targetNode = match || instance;
+              const topFrame = findTopLevelFrame(targetNode);
+              if (!topFrame) continue;
+              const parent = findNearestParentFrame(targetNode);
+              pushBinding(alias.id, targetNode, topFrame, parent || topFrame);
+            }
+          }
+        }
       }
       return bindings;
     });

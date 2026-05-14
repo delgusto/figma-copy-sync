@@ -232,6 +232,43 @@ async function buildBindings(selectedVarIds: Set<string>, selectedPageIds: Set<s
         }
       }
     }
+
+    // ── Pass 3: inherited bindings from the main component ───────────────────
+    // When a variable is bound to a text layer in the MAIN COMPONENT (not
+    // overridden per-instance), the instance's text nodes may not expose
+    // boundVariables.characters (Pass 1 misses it) and may not be exposed via
+    // componentProperties (Pass 2 misses it). Resolve the main component and
+    // check its text nodes directly, then match to the instance's text nodes
+    // by layer name for rect accuracy (falls back to the instance bbox).
+    for (const instance of instances) {
+      let mainComp: ComponentNode | null = null;
+      try {
+        mainComp = await (instance as InstanceNode).getMainComponentAsync();
+      } catch (_e) {
+        continue;
+      }
+      if (!mainComp) continue;
+
+      const compTextNodes = mainComp.findAllWithCriteria({ types: ['TEXT'] });
+      for (const compNode of compTextNodes) {
+        const bound = (compNode as TextNode).boundVariables;
+        if (!bound) continue;
+        const chars = (bound as any).characters;
+        if (!chars) continue;
+        const aliases = Array.isArray(chars) ? chars : [chars];
+        for (const alias of aliases) {
+          if (!alias?.id || !selectedVarIds.has(alias.id)) continue;
+          // Find the matching text node inside the instance (by layer name).
+          const instanceTextNodes = (instance as InstanceNode).findAllWithCriteria({ types: ['TEXT'] });
+          const match = instanceTextNodes.find((t) => t.name === compNode.name) as TextNode | undefined;
+          const targetNode = (match || instance) as unknown as TextNode;
+          const topFrame = findTopLevelFrame(targetNode as unknown as BaseNode);
+          if (!topFrame) continue;
+          const parent = findNearestParentFrame(targetNode as unknown as BaseNode);
+          pushBinding(alias.id, targetNode, topFrame, parent || topFrame);
+        }
+      }
+    }
   }
   return bindings;
 }
