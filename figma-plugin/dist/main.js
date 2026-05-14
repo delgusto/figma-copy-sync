@@ -25,7 +25,7 @@
   var PLUGIN_DATA_KEY_SELECTION = "copyCollections";
   var PLUGIN_DATA_KEY_PAGES = "copyPages";
   var SKIP_PREFIX = "[skip]";
-  figma.showUI(__html__, { width: 380, height: 480, themeColors: true });
+  figma.showUI(__html__, { width: 400, height: 700, themeColors: true });
   function postToUi(msg) {
     figma.ui.postMessage(msg);
   }

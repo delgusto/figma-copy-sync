@@ -41968,7 +41968,15 @@ ${sections.join("\n")}
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, overflowY: "auto" }, children: [
           pages.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Pages" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { ...sectionLabel, display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Pages" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: selectAllBtn, disabled: isWorking || isImporting, onClick: () => {
+                const allSelected = pages.every((p) => selectedPages.has(p.id));
+                const next = new Set(allSelected ? [] : pages.map((p) => p.id));
+                setSelectedPages(next);
+                send({ type: "persist-page-selection", selectedPageIds: Array.from(next) });
+              }, children: pages.every((p) => selectedPages.has(p.id)) ? "Deselect all" : "Select all" })
+            ] }),
             pages.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: selectedPages.has(p.id), onChange: () => togglePage(p.id), disabled: isWorking || isImporting }),
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
@@ -41982,7 +41990,15 @@ ${sections.join("\n")}
               ] })
             ] }, p.id))
           ] }),
-          pages.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Collections" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { ...sectionLabel, display: "flex", alignItems: "center", justifyContent: "space-between" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Collections" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: selectAllBtn, disabled: isWorking || isImporting, onClick: () => {
+              const allSelected = collections.every((c) => selected.has(c.id));
+              const next = new Set(allSelected ? [] : collections.map((c) => c.id));
+              setSelected(next);
+              send({ type: "persist-selection", selectedCollectionIds: Array.from(next) });
+            }, children: collections.every((c) => selected.has(c.id)) ? "Deselect all" : "Select all" })
+          ] }),
           collections.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { ...rowStyle, cursor: "pointer" }, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked: selected.has(c.id), onChange: () => toggle(c.id), disabled: isWorking || isImporting }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
@@ -42094,6 +42110,7 @@ ${sections.join("\n")}
   }
   var headerWrap = { padding: "10px 12px", borderBottom: "1px solid var(--border)" };
   var sectionLabel = { padding: "6px 12px 2px", fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--text-secondary)", borderTop: "1px solid var(--border)" };
+  var selectAllBtn = { fontSize: 10, padding: "1px 6px", border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", borderRadius: 4, cursor: "pointer", textTransform: "none", letterSpacing: 0, fontWeight: 400 };
   var refreshBtn = { flexShrink: 0, padding: "4px 8px", border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", borderRadius: 6, cursor: "pointer", fontSize: 11 };
   var rowStyle = { display: "flex", gap: 10, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border)" };
   var pill = { fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--text-secondary)", background: "var(--border)", padding: "1px 6px", borderRadius: 999 };

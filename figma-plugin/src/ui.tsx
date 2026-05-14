@@ -380,7 +380,17 @@ function App() {
             {/* ── Pages filter ── */}
             {pages.length > 1 && (
               <>
-                <div style={sectionLabel}>Pages</div>
+                <div style={{ ...sectionLabel, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Pages</span>
+                  <button style={selectAllBtn} disabled={isWorking || isImporting} onClick={() => {
+                    const allSelected = pages.every(p => selectedPages.has(p.id));
+                    const next = new Set(allSelected ? [] : pages.map(p => p.id));
+                    setSelectedPages(next);
+                    send({ type: 'persist-page-selection', selectedPageIds: Array.from(next) });
+                  }}>
+                    {pages.every(p => selectedPages.has(p.id)) ? 'Deselect all' : 'Select all'}
+                  </button>
+                </div>
                 {pages.map((p) => (
                   <label key={p.id} style={{ ...rowStyle, cursor: 'pointer' }}>
                     <input type="checkbox" checked={selectedPages.has(p.id)} onChange={() => togglePage(p.id)} disabled={isWorking || isImporting} />
@@ -394,7 +404,17 @@ function App() {
             )}
 
             {/* ── Collections filter ── */}
-            {pages.length > 1 && <div style={sectionLabel}>Collections</div>}
+            <div style={{ ...sectionLabel, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Collections</span>
+              <button style={selectAllBtn} disabled={isWorking || isImporting} onClick={() => {
+                const allSelected = collections.every(c => selected.has(c.id));
+                const next = new Set(allSelected ? [] : collections.map(c => c.id));
+                setSelected(next);
+                send({ type: 'persist-selection', selectedCollectionIds: Array.from(next) });
+              }}>
+                {collections.every(c => selected.has(c.id)) ? 'Deselect all' : 'Select all'}
+              </button>
+            </div>
             {collections.map((c) => (
               <label key={c.id} style={{ ...rowStyle, cursor: 'pointer' }}>
                 <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} disabled={isWorking || isImporting} />
@@ -508,6 +528,7 @@ function toastBg(level: 'info' | 'error' | 'success'): string {
 // ── Styles ──────────────────────────────────────────────────────────────────
 const headerWrap: React.CSSProperties = { padding: '10px 12px', borderBottom: '1px solid var(--border)' };
 const sectionLabel: React.CSSProperties = { padding: '6px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' };
+const selectAllBtn: React.CSSProperties = { fontSize: 10, padding: '1px 6px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontWeight: 400 };
 const refreshBtn: React.CSSProperties = { flexShrink: 0, padding: '4px 8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', borderRadius: 6, cursor: 'pointer', fontSize: 11 };
 const rowStyle: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--border)' };
 // Neutral pill — grey so it doesn't visually compete with the blue Export button
