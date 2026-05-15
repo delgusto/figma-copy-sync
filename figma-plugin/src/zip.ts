@@ -12,8 +12,8 @@ export async function buildAndDownloadBundle(
   payload: ExportPayload,
   options: { highlight: boolean } = { highlight: true },
 ): Promise<void> {
-  // Originals (unannotated) — keep these around for per-variable HTML annotation
-  // so each row gets a screenshot that highlights ONLY that row's variable.
+  // Originals (unannotated) — needed to generate per-variable annotated
+  // crops for the XLSX, distinct from the all-rects-annotated PNGs in frames/.
   const originalFrames = payload.frames;
 
   // 1. Frames written into the ZIP (frames/*.png).
@@ -23,36 +23,35 @@ export async function buildAndDownloadBundle(
     ? await Promise.all(originalFrames.map((f) => annotateFrameAll(f)))
     : originalFrames;
 
-  // 2. Per-row data URLs for strings.html.
-  //    For each (frame, variable-in-that-frame), produce a PNG with only that
-  //    variable's rect drawn. Cached so each (frame, variable) is rendered once.
-  //    Highlight off → empty map, html.ts falls back to the unannotated frame.
-  const perVarDataUrls = new Map<string, Map<string, string>>();
+  // 2. Per-variable annotated PNG bytes — used by xlsx.ts to embed one image
+  //    per (frame, variable) row with only that variable's rect highlighted.
+  //    Highlight off → empty map, XLSX rows get no embedded screenshots.
+  const perVarBytes = new Map<string, Map<string, Uint8Array>>();
   if (options.highlight) {
     for (const frame of originalFrames) {
-      const inner = new Map<string, string>();
+      const inner = new Map<string, Uint8Array>();
       const seenVarNames = new Set<string>();
       for (const r of frame.rects) {
         if (seenVarNames.has(r.variableName)) continue;
         seenVarNames.add(r.variableName);
         const bytes = await annotateFrameForVariable(frame, r.variableName);
-        inner.set(r.variableName, bytesToDataUrl(bytes));
+        // key by canonical variable name (matches VariableEntry.id)
+        inner.set(r.variableName, bytes);
       }
-      if (inner.size) perVarDataUrls.set(frame.name, inner);
+      if (inner.size) perVarBytes.set(frame.name, inner);
     }
   }
 
   // Build outputs.
-  const html = buildHtml(payload, perVarDataUrls);
-  // Confluence-safe version: no embedded images (data: URLs stripped on paste).
-  // Upload frames/*.png as page attachments to get screenshots in Confluence.
-  const htmlConfluence = buildHtml(payload, new Map(), true);
+  // HTML references frames/*.png by relative path (no base64 embedding).
+  // XLSX is the Confluence-friendly artefact — embeds per-variable PNGs inline.
+  const html = buildHtml(payload);
+  const xlsx = await buildXlsx(payload, perVarBytes);
 
   const zip = new JSZip();
   zip.file('strings.json', buildJson(payload));
-  zip.file('strings.xlsx', buildXlsx(payload));
+  zip.file('strings.xlsx', xlsx);
   zip.file('strings.html', html);
-  zip.file('strings-confluence.html', htmlConfluence);
 
   const framesDir = zip.folder('frames');
   if (framesDir) {
@@ -75,16 +74,6 @@ export async function buildAndDownloadBundle(
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-function bytesToDataUrl(bytes: Uint8Array): string {
-  const CHUNK = 0x8000;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const chunk = bytes.subarray(i, i + CHUNK);
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
-  }
-  return `data:image/png;base64,${btoa(binary)}`;
 }
 
 function bundleName(payload: ExportPayload): string {

@@ -1,40 +1,26 @@
 import type { ExportPayload, FramePng, VariableEntry } from '../types';
 
-// HTML table designed to survive copy-paste into Confluence Cloud.
-// All styling inline because Confluence's storage format strips <style> blocks.
-// Frame screenshots embedded as data: URLs so a single paste carries the images.
+// HTML table for local viewing of the export bundle.
+//
+// Confluence delivery is handled by strings.xlsx (embedded images via the
+// Confluence Excel macro). This HTML is the local-viewing artefact:
+// open from the unzipped bundle in any browser, screenshots show via
+// relative <img src="frames/x.png"> paths.
 //
 // Layout: frame-centric rows.
 //   - Grouped by top-level frame (one group per frame per collection).
-//   - First row of each group: frame name + first variable + per-var screenshot.
-//   - Subsequent rows: empty frame cell + next variable + per-var screenshot.
-//   - Screenshot shows red highlight for that specific variable (or falls back
-//     to the unannotated full frame if no annotation was generated).
-//   - No rowspan — Confluence-safe.
+//   - First row of each group: frame name + first variable.
+//   - Subsequent rows: empty frame cell + next variable.
+//   - Screenshot column shows the frame PNG by relative path.
+//   - No rowspan — Confluence-safe (if someone pastes it anyway).
 //   - Variables with no frame binding: "— (no frame)" group at the bottom.
 
 const NO_FRAME = '— (no frame)';
 
-export function buildHtml(
-  payload: ExportPayload,
-  perVarDataUrls: Map<string, Map<string, string>> = new Map(),
-  // confluenceMode: omit embedded images; show frame filenames as text instead.
-  // Confluence strips data: URLs — this version pastes cleanly. Upload
-  // frames/*.png as Confluence page attachments for visual context.
-  confluenceMode = false,
-): string {
-  // Unannotated frame data URL — fallback when no per-var annotation exists.
-  // Not used in confluenceMode (no images embedded).
-  const frameDataUrls = new Map<string, string>();
-  if (!confluenceMode) {
-    for (const frame of payload.frames) {
-      frameDataUrls.set(frame.name, bytesToDataUrl(frame.bytes));
-    }
-  }
-
+export function buildHtml(payload: ExportPayload): string {
   const sections: string[] = [];
 
-  // Group variables by collection (existing top-level grouping).
+  // Group variables by collection (top-level grouping).
   const byCollection = new Map<string, VariableEntry[]>();
   for (const v of payload.variables) {
     if (!byCollection.has(v.collectionName)) byCollection.set(v.collectionName, []);
@@ -43,22 +29,18 @@ export function buildHtml(
 
   for (const [colName, vars] of byCollection) {
     sections.push(`<h3 style="${h3Style}">${escapeHtml(colName)}</h3>`);
-    sections.push(buildFrameTable(vars, payload.modes, frameDataUrls, confluenceMode ? new Map() : perVarDataUrls, payload.frames, confluenceMode));
+    sections.push(buildFrameTable(vars, payload.modes, payload.frames));
   }
 
   const varCount = payload.variables.length;
   const frameCount = payload.frames.length;
-
-  const confluenceNote = confluenceMode
-    ? `<p style="${pStyle};background:#fffbe6;border:1px solid #ffe58f;padding:8px 10px;border-radius:4px"><strong>Confluence version</strong> — images replaced with filenames. Upload <code>frames/*.png</code> as Confluence page attachments, then images will appear.</p>`
-    : '';
 
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${escapeHtml(payload.fileName)} — Copy Sync export</title></head>
 <body style="${bodyStyle}">
 <h2 style="${h2Style}">${escapeHtml(payload.fileName)} — UX copy</h2>
 <p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} · ${varCount} string${varCount === 1 ? '' : 's'} · ${frameCount} frame${frameCount === 1 ? '' : 's'} · modes: ${payload.modes.map(escapeHtml).join(', ')}</p>
-${confluenceNote}
+<p style="${pStyle};color:#888">Open this file from the unzipped bundle to see screenshots. For Confluence, import <code>strings.xlsx</code> instead.</p>
 ${sections.join('\n')}
 </body></html>`;
 }
@@ -66,10 +48,7 @@ ${sections.join('\n')}
 function buildFrameTable(
   vars: VariableEntry[],
   modes: string[],
-  frameDataUrls: Map<string, string>,
-  perVarDataUrls: Map<string, Map<string, string>>,
   framePngs: FramePng[],
-  confluenceMode = false,
 ): string {
   // Build Map<frameName, VariableEntry[]> — frame-centric grouping.
   // A variable with N distinct top frames appears in N groups (correct).
@@ -88,7 +67,6 @@ function buildFrameTable(
       for (const fn of topFrameNames) {
         if (!frameGroups.has(fn)) frameGroups.set(fn, []);
         const group = frameGroups.get(fn)!;
-        // Dedupe: skip if this variable is already in the group.
         if (!group.some((g) => g.id === v.id)) group.push(v);
       }
     }
@@ -113,8 +91,6 @@ function buildFrameTable(
 
   for (const frameName of sortedFrameNames) {
     const frameVars = frameGroups.get(frameName)!;
-    const dataUrl = frameName !== NO_FRAME ? frameDataUrls.get(frameName) : undefined;
-    // Find FramePng for filename fallback.
     const framePng = frameName !== NO_FRAME
       ? framePngs.find((f) => f.name === frameName)
       : undefined;
@@ -123,45 +99,23 @@ function buildFrameTable(
       const v = frameVars[i];
       const isFirst = i === 0;
 
-      // Thicker top border on first row of each group to visually separate groups.
       const groupBorder = isFirst ? 'border-top:2px solid #ccc;' : '';
 
       const frameTd = isFirst
         ? `<td style="${tdStyle};font-weight:500;vertical-align:top;${groupBorder}">${escapeHtml(frameName)}</td>`
         : `<td style="${tdStyle};${groupBorder}"></td>`;
 
-      // Per-variable annotated screenshot.
-      // Shows "In context" (parent frame, tight crop) when the parent is a
-      // different frame from the top-level one — this is the useful one for
-      // component instances. Always shows "Full frame" (top-level) below it.
-      // Falls back to unannotated frame PNG, then a plain filename reference.
+      // Screenshot — relative path to frames/*.png. Shows top frame for full
+      // context. Parent frame ("in context" view) is implicit since the
+      // frame-centric grouping already collapses by top frame.
       let screenshotContent: string;
       if (frameName === NO_FRAME) {
         screenshotContent = '';
+      } else if (framePng) {
+        const src = `frames/${escapeHtml(sanitize(framePng.filename))}`;
+        screenshotContent = `<img alt="${escapeHtml(frameName)}" src="${src}" style="${imgStyle}"/>`;
       } else {
-        // Find the occurrence that places this variable in this top frame.
-        const occ = v.occurrences.find((o) => o.topFrameName === frameName);
-        const parentName = occ && occ.parentFrameName !== frameName ? occ.parentFrameName : null;
-
-        const renderShot = (name: string, label: string): string => {
-          const sub = `<div style="font-size:10px;color:#888;margin-top:2px">${escapeHtml(label)}</div>`;
-          const png = framePngs.find((f) => f.name === name);
-          if (confluenceMode) {
-            // No data: URLs — show filename so the user knows which attachment to upload.
-            const ref = png ? `frames/${escapeHtml(sanitize(png.filename))}` : escapeHtml(name);
-            return `<div style="margin-bottom:6px"><code style="${codeStyle}">${ref}</code>${sub}</div>`;
-          }
-          const perVarUrl = perVarDataUrls.get(name)?.get(v.id);
-          const fallback = frameDataUrls.get(name);
-          const url = perVarUrl || fallback;
-          if (url) return `<div style="margin-bottom:6px"><img alt="${escapeHtml(name)}" src="${url}" style="${imgStyle}"/>${sub}</div>`;
-          if (png) return `<div style="margin-bottom:6px"><code style="${codeStyle}">frames/${escapeHtml(sanitize(png.filename))}</code>${sub}</div>`;
-          return '';
-        };
-
-        const parentBlock = parentName ? renderShot(parentName, 'In context') : '';
-        const topBlock = renderShot(frameName, 'Full frame');
-        screenshotContent = parentBlock + topBlock || `<span style="color:#aaa">no screenshot</span>`;
+        screenshotContent = `<span style="color:#aaa">no screenshot</span>`;
       }
       const screenshotTd = `<td style="${tdStyle};vertical-align:top;${groupBorder}">${screenshotContent}</td>`;
 
@@ -194,16 +148,6 @@ const codeStyle = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-
 const imgStyle = 'max-width:280px;width:100%;height:auto;border:1px solid #ddd;border-radius:4px;display:block;';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function bytesToDataUrl(bytes: Uint8Array): string {
-  const CHUNK = 0x8000;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const chunk = bytes.subarray(i, i + CHUNK);
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
-  }
-  return `data:image/png;base64,${btoa(binary)}`;
-}
 
 function escapeHtml(s: string): string {
   return s

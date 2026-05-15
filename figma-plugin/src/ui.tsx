@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { createRoot } from 'react-dom/client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -34,51 +34,97 @@ interface ImportResult {
 
 // ---------------------------------------------------------------------------
 // XLSX parsing — runs entirely in the UI iframe.
-// Reads the "strings" master sheet (or first non-meta sheet) and extracts one
-// ImportUpdate per data row. Mode columns are identified as everything
-// between the "description" column and the "frames" column.
+// Reads the "strings" master sheet (or first non-_meta sheet) and extracts one
+// ImportUpdate per data row.
+//
+// Header layout (new format from current exporter):
+//   Frame | Screenshot | Variable | Description | <mode1> | <mode2> | ...
+//
+// Back-compat (old format from earlier xlsx.ts):
+//   collection | group | name | id | description | <modes> | frames | screenshot_files
+//
+// Either format identifies the canonical variable name via the "Variable" or
+// "id" column. Mode columns sit between Description and either Frames (old) or
+// end-of-row (new).
 // ---------------------------------------------------------------------------
-function parseImportXlsx(buffer: ArrayBuffer): ImportUpdate[] {
-  const wb = XLSX.read(buffer, { type: 'array' });
-  const sheetName = wb.SheetNames.includes('strings')
-    ? 'strings'
-    : wb.SheetNames.find((n) => n !== '_meta') ?? wb.SheetNames[0];
-  const ws = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as string[][];
+async function parseImportXlsx(buffer: ArrayBuffer): Promise<ImportUpdate[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
 
-  if (!rows.length) throw new Error('Spreadsheet is empty');
+  // Pick the data sheet: prefer "strings", then first non-"_meta" sheet.
+  let ws = wb.getWorksheet('strings');
+  if (!ws) ws = wb.worksheets.find((s) => s.name !== '_meta') || wb.worksheets[0];
+  if (!ws) throw new Error('Spreadsheet has no sheets');
 
-  const headers = rows[0].map((h) => String(h ?? '').trim().toLowerCase());
-  const idIdx = headers.indexOf('id');
-  const descIdx = headers.indexOf('description');
-  const framesIdx = headers.indexOf('frames');
+  const headerRow = ws.getRow(1);
+  if (!headerRow || !headerRow.cellCount) throw new Error('Spreadsheet is empty');
 
-  if (idIdx === -1) throw new Error('Missing "id" column — is this a Copy Sync export?');
+  // Build headers array; ExcelJS columns are 1-indexed, so we offset to 0-indexed.
+  const headers: string[] = [];
+  headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    headers[colNumber - 1] = String(cell.value ?? '').trim();
+  });
 
-  const modeStart = descIdx !== -1 ? descIdx + 1 : idIdx + 1;
-  const modeEnd = framesIdx !== -1 ? framesIdx : headers.length;
-  // Use original (non-lowercased) headers for mode names — must match Figma exactly.
-  const origHeaders = rows[0].map((h) => String(h ?? '').trim());
-  const modeColumns = origHeaders.slice(modeStart, modeEnd).filter(Boolean);
+  const lower = headers.map((h) => h.toLowerCase());
+  // New format → "variable" column. Old format → "id" column. Either works.
+  const varIdx = lower.indexOf('variable') !== -1 ? lower.indexOf('variable') : lower.indexOf('id');
+  const descIdx = lower.indexOf('description');
+  const framesIdx = lower.indexOf('frames'); // old format only
 
-  if (!modeColumns.length) {
-    throw new Error('No mode columns found between "description" and "frames"');
+  if (varIdx === -1) {
+    throw new Error('Missing "Variable" or "id" column — is this a Copy Sync export?');
   }
 
+  // Mode columns: between Description (exclusive) and Frames (exclusive, old)
+  // or end of row (new). Skip blank headers.
+  const modeStart = descIdx !== -1 ? descIdx + 1 : varIdx + 1;
+  const modeEnd = framesIdx !== -1 ? framesIdx : headers.length;
+  const modeColumns: { name: string; colIdx: number }[] = [];
+  for (let c = modeStart; c < modeEnd; c++) {
+    const name = headers[c];
+    if (name) modeColumns.push({ name, colIdx: c });
+  }
+
+  if (!modeColumns.length) {
+    throw new Error('No mode columns found between Description and Frames');
+  }
+
+  // Read data rows. ExcelJS columns are 1-indexed in getCell(n).
   const updates: ImportUpdate[] = [];
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r];
-    const variableName = String(row[idIdx] ?? '').trim();
+  const lastRow = ws.actualRowCount || ws.rowCount;
+  for (let r = 2; r <= lastRow; r++) {
+    const row = ws.getRow(r);
+    const variableName = String(row.getCell(varIdx + 1).value ?? '').trim();
     if (!variableName) continue;
     const modeValues: Record<string, string> = {};
-    for (let c = 0; c < modeColumns.length; c++) {
-      modeValues[modeColumns[c]] = String(row[modeStart + c] ?? '');
+    for (const m of modeColumns) {
+      const v = row.getCell(m.colIdx + 1).value;
+      modeValues[m.name] = cellValueToString(v);
     }
     updates.push({ variableName, modeValues });
   }
 
   if (!updates.length) throw new Error('No variable rows found in spreadsheet');
   return updates;
+}
+
+// ExcelJS cell values can be string | number | boolean | Date | RichText | Formula | etc.
+// Normalise to a flat string for variable mode values.
+function cellValueToString(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (v instanceof Date) return v.toISOString();
+  // Rich text: { richText: [{text: '...'}, ...] }
+  if (typeof v === 'object' && 'richText' in (v as Record<string, unknown>)) {
+    const rt = (v as { richText: { text: string }[] }).richText;
+    return Array.isArray(rt) ? rt.map((p) => p.text).join('') : '';
+  }
+  // Formula: { formula, result }
+  if (typeof v === 'object' && 'result' in (v as Record<string, unknown>)) {
+    return cellValueToString((v as { result: unknown }).result);
+  }
+  return String(v);
 }
 
 function App() {
@@ -202,9 +248,9 @@ function App() {
     e.target.value = '';
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
-        const updates = parseImportXlsx(reader.result as ArrayBuffer);
+        const updates = await parseImportXlsx(reader.result as ArrayBuffer);
         setImportUpdates(updates);
         setImportParseError(null);
         setImportState('parsed');
