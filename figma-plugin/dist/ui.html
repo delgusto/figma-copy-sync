@@ -54110,8 +54110,9 @@
       title: `${payload.fileName} \u2014 UX copy`,
       sections: [{ children }]
     });
-    const buf = await Packer.toBuffer(doc);
-    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    const blob = await Packer.toBlob(doc);
+    const ab = await blob.arrayBuffer();
+    return new Uint8Array(ab);
   }
   function buildFrameTable(vars, modes, perVarBytes) {
     const frameGroups = /* @__PURE__ */ new Map();

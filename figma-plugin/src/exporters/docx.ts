@@ -111,13 +111,12 @@ export async function buildDocx(
     sections: [{ children }],
   });
 
-  // Packer.toBuffer returns Buffer in Node, Uint8Array in browser.
-  // The Figma plugin UI iframe is browser; in browser this resolves to Uint8Array.
-  // Packer.toBuffer returns a Node Buffer (or a Uint8Array-shaped object in
-  // browsers). Both have .buffer + .byteOffset + .byteLength, so we can copy
-  // bytes into a fresh Uint8Array without caring which one we got.
-  const buf = (await Packer.toBuffer(doc)) as unknown as Uint8Array;
-  return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  // Use toBlob, not toBuffer: toBuffer references Node's Buffer global, which
+  // doesn't exist in the Figma plugin UI iframe ("node buffer is not supported
+  // by this platform"). toBlob is the browser path; convert Blob -> Uint8Array.
+  const blob = await Packer.toBlob(doc);
+  const ab = await blob.arrayBuffer();
+  return new Uint8Array(ab);
 }
 
 function buildFrameTable(
