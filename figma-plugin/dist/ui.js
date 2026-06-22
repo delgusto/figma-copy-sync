@@ -43045,6 +43045,7 @@
     }
     return val;
   };
+  var shortHexNumber = (val) => hexBinary(val, 2);
   var uCharHexNumber = (val) => hexBinary(val, 1);
   var universalMeasureValue = (val) => {
     const unit = val.slice(-2);
@@ -43832,6 +43833,32 @@
   var TextRun = class extends Run {
     constructor(options) {
       super(typeof options === "string" ? { text: options } : options);
+    }
+  };
+  var SymbolAttributes = class extends XmlAttributeComponent {
+    constructor() {
+      super(...arguments);
+      __publicField(this, "xmlKeys", {
+        char: "w:char",
+        symbolfont: "w:font"
+      });
+    }
+  };
+  var Symbol$1 = class Symbol2 extends XmlComponent {
+    constructor(char = "", symbolfont = "Wingdings") {
+      super("w:sym");
+      this.root.push(new SymbolAttributes({ char, symbolfont }));
+    }
+  };
+  var SymbolRun = class extends Run {
+    constructor(options) {
+      if (typeof options === "string") {
+        super({});
+        this.root.push(new Symbol$1(options));
+        return this;
+      }
+      super(options);
+      this.root.push(new Symbol$1(options.char, options.symbolfont));
     }
   };
   var hash$1 = {};
@@ -50721,6 +50748,89 @@
       return this.fontWrapper;
     }
   };
+  var StructuredDocumentTagContent = class extends XmlComponent {
+    constructor() {
+      super("w:sdtContent");
+    }
+  };
+  var StructuredDocumentTagProperties = class extends XmlComponent {
+    constructor(alias) {
+      super("w:sdtPr");
+      if (alias) {
+        this.root.push(new StringValueElement("w:alias", alias));
+      }
+    }
+  };
+  var CheckboxSymbolAttributes = class extends XmlAttributeComponent {
+    constructor() {
+      super(...arguments);
+      __publicField(this, "xmlKeys", {
+        val: "w14:val",
+        symbolfont: "w14:font"
+      });
+    }
+  };
+  var CheckBoxSymbolElement = class extends XmlComponent {
+    constructor(name, val, font) {
+      super(name);
+      if (font) {
+        this.root.push(new CheckboxSymbolAttributes({ val: shortHexNumber(val), symbolfont: font }));
+      } else {
+        this.root.push(new CheckboxSymbolAttributes({ val }));
+      }
+    }
+  };
+  var CheckBoxUtil = class extends XmlComponent {
+    constructor(options) {
+      var _a, _b, _c, _d, _e, _f, _g, _h;
+      super("w14:checkbox");
+      __publicField(this, "DEFAULT_UNCHECKED_SYMBOL", "2610");
+      __publicField(this, "DEFAULT_CHECKED_SYMBOL", "2612");
+      __publicField(this, "DEFAULT_FONT", "MS Gothic");
+      const value = (options == null ? void 0 : options.checked) ? "1" : "0";
+      let symbol;
+      let font;
+      this.root.push(new CheckBoxSymbolElement("w14:checked", value));
+      symbol = ((_a = options == null ? void 0 : options.checkedState) == null ? void 0 : _a.value) ? (_b = options == null ? void 0 : options.checkedState) == null ? void 0 : _b.value : this.DEFAULT_CHECKED_SYMBOL;
+      font = ((_c = options == null ? void 0 : options.checkedState) == null ? void 0 : _c.font) ? (_d = options == null ? void 0 : options.checkedState) == null ? void 0 : _d.font : this.DEFAULT_FONT;
+      this.root.push(new CheckBoxSymbolElement("w14:checkedState", symbol, font));
+      symbol = ((_e = options == null ? void 0 : options.uncheckedState) == null ? void 0 : _e.value) ? (_f = options == null ? void 0 : options.uncheckedState) == null ? void 0 : _f.value : this.DEFAULT_UNCHECKED_SYMBOL;
+      font = ((_g = options == null ? void 0 : options.uncheckedState) == null ? void 0 : _g.font) ? (_h = options == null ? void 0 : options.uncheckedState) == null ? void 0 : _h.font : this.DEFAULT_FONT;
+      this.root.push(new CheckBoxSymbolElement("w14:uncheckedState", symbol, font));
+    }
+  };
+  var CheckBox = class extends XmlComponent {
+    constructor(options) {
+      var _a, _b, _c, _d;
+      super("w:sdt");
+      __publicField(this, "DEFAULT_UNCHECKED_SYMBOL", "2610");
+      __publicField(this, "DEFAULT_CHECKED_SYMBOL", "2612");
+      __publicField(this, "DEFAULT_FONT", "MS Gothic");
+      const properties = new StructuredDocumentTagProperties(options == null ? void 0 : options.alias);
+      properties.addChildElement(new CheckBoxUtil(options));
+      this.root.push(properties);
+      const content = new StructuredDocumentTagContent();
+      const checkedFont = (_a = options == null ? void 0 : options.checkedState) == null ? void 0 : _a.font;
+      const checkedText = (_b = options == null ? void 0 : options.checkedState) == null ? void 0 : _b.value;
+      const uncheckedFont = (_c = options == null ? void 0 : options.uncheckedState) == null ? void 0 : _c.font;
+      const uncheckedText = (_d = options == null ? void 0 : options.uncheckedState) == null ? void 0 : _d.value;
+      let symbolFont;
+      let char;
+      if (options == null ? void 0 : options.checked) {
+        symbolFont = checkedFont ? checkedFont : this.DEFAULT_FONT;
+        char = checkedText ? checkedText : this.DEFAULT_CHECKED_SYMBOL;
+      } else {
+        symbolFont = uncheckedFont ? uncheckedFont : this.DEFAULT_FONT;
+        char = uncheckedText ? uncheckedText : this.DEFAULT_UNCHECKED_SYMBOL;
+      }
+      const initialRenderedChar = new SymbolRun({
+        char,
+        symbolfont: symbolFont
+      });
+      content.addChildElement(initialRenderedChar);
+      this.root.push(content);
+    }
+  };
   var streamBrowserifyExports = requireStreamBrowserify();
   function commonjsRequire(path) {
     throw new Error('Could not dynamically require "' + path + '". Please configure the dynamicRequireTargets or/and ignoreDynamicRequires option of @rollup/plugin-commonjs appropriately for this require call to work.');
@@ -54249,7 +54359,7 @@
               ),
               dataCell([paragraph("")], AX_W, isFirst),
               dataCell([paragraph("")], COMMENTS_W, isFirst),
-              dataCell([paragraph("")], SIGNOFF_W, isFirst)
+              dataCell([checkboxParagraph()], SIGNOFF_W, isFirst)
             ]
           })
         );
@@ -54317,6 +54427,9 @@
         })
       ]
     });
+  }
+  function checkboxParagraph() {
+    return new Paragraph({ children: [new CheckBox({ checked: false })] });
   }
   function captionParagraph(text) {
     return new Paragraph({

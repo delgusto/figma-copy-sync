@@ -23,6 +23,7 @@ import {
   BorderStyle,
   ShadingType,
   VerticalAlign,
+  CheckBox,
 } from 'docx';
 import type { ExportPayload, VariableEntry, FramePng, TeamMember } from '../types';
 import type { CropResult } from '../annotate';
@@ -298,7 +299,7 @@ function buildFrameTable(
             ),
             dataCell([paragraph('')], AX_W, isFirst),
             dataCell([paragraph('')], COMMENTS_W, isFirst),
-            dataCell([paragraph('')], SIGNOFF_W, isFirst),
+            dataCell([checkboxParagraph()], SIGNOFF_W, isFirst),
           ],
         }),
       );
@@ -382,6 +383,12 @@ function imageParagraph(
       }),
     ],
   });
+}
+
+// An interactive Word checkbox (legacy form-field content control). Survives
+// import into Confluence as a checkbox, per testing.
+function checkboxParagraph(): Paragraph {
+  return new Paragraph({ children: [new CheckBox({ checked: false })] });
 }
 
 function captionParagraph(text: string): Paragraph {
