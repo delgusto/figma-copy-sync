@@ -54024,6 +54024,10 @@
   var SCREENSHOT_W = 3e3;
   var VAR_W = 1800;
   var DESC_W = 1800;
+  var MODE_W = 1800;
+  var AX_W = 1600;
+  var COMMENTS_W = 2200;
+  var SIGNOFF_W = 1400;
   var BORDER = {
     style: BorderStyle.SINGLE,
     size: 4,
@@ -54106,7 +54110,9 @@
     }
     const sortedFrameNames = Array.from(frameGroups.keys()).filter((k) => k !== NO_FRAME2).sort((a, b) => a.localeCompare(b));
     if (frameGroups.has(NO_FRAME2)) sortedFrameNames.push(NO_FRAME2);
-    const modeColW = Math.max(1200, Math.floor((9e3 - FRAME_W - SCREENSHOT_W - VAR_W - DESC_W) / Math.max(modes.length, 1)));
+    const modeColW = MODE_W;
+    const modeHeader = (m) => modes.length === 1 ? "Copy" : m;
+    const tableWidth = FRAME_W + SCREENSHOT_W + VAR_W + DESC_W + modes.length * modeColW + AX_W + COMMENTS_W + SIGNOFF_W;
     const rows = [];
     rows.push(
       new TableRow({
@@ -54116,7 +54122,10 @@
           headerCell("Screenshot", SCREENSHOT_W),
           headerCell("Variable", VAR_W),
           headerCell("Description", DESC_W),
-          ...modes.map((m) => headerCell(m, modeColW))
+          ...modes.map((m) => headerCell(modeHeader(m), modeColW)),
+          headerCell("Accessibility", AX_W),
+          headerCell("Comments", COMMENTS_W),
+          headerCell("Sign off", SIGNOFF_W)
         ]
       })
     );
@@ -54156,14 +54165,17 @@
               dataCell([paragraph(v.description)], DESC_W, isFirst),
               ...modes.map(
                 (m) => dataCell([paragraph(v.values[m] ?? "")], modeColW, isFirst)
-              )
+              ),
+              dataCell([paragraph("")], AX_W, isFirst),
+              dataCell([paragraph("")], COMMENTS_W, isFirst),
+              dataCell([paragraph("")], SIGNOFF_W, isFirst)
             ]
           })
         );
       }
     }
     return new Table({
-      width: { size: 9e3, type: WidthType.DXA },
+      width: { size: tableWidth, type: WidthType.DXA },
       rows,
       borders: {
         top: BORDER,

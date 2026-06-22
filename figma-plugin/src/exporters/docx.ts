@@ -43,13 +43,17 @@ function scaleToWidth(
   return { width, height: Math.max(1, Math.round(width * (h / w))) };
 }
 
-// Table column widths in DXA (1/20 of a point). Page width ~ 12240 DXA
-// (US Letter, full width minus margins ≈ 9000 DXA). Distribute:
-//   Frame 1400, Screenshot 3000, Variable 1800, Description 1800, modes share rest.
+// Table column widths in DXA (1/20 of a point). With the review columns the
+// table is wider than one page — that's expected; Word/Confluence scroll it.
 const FRAME_W = 1400;
 const SCREENSHOT_W = 3000;
 const VAR_W = 1800;
 const DESC_W = 1800;
+const MODE_W = 1800; // each mode / Copy column
+// Review columns reviewers fill in by hand.
+const AX_W = 1600; // Accessibility
+const COMMENTS_W = 2200; // Comments
+const SIGNOFF_W = 1400; // Sign off
 
 const BORDER = {
   style: BorderStyle.SINGLE,
@@ -165,8 +169,11 @@ function buildFrameTable(
     .sort((a, b) => a.localeCompare(b));
   if (frameGroups.has(NO_FRAME)) sortedFrameNames.push(NO_FRAME);
 
-  // Mode column width — share remaining width across modes.
-  const modeColW = Math.max(1200, Math.floor((9000 - FRAME_W - SCREENSHOT_W - VAR_W - DESC_W) / Math.max(modes.length, 1)));
+  const modeColW = MODE_W;
+  // Single mode → label the value column "Copy"; multiple → keep mode names.
+  const modeHeader = (m: string): string => (modes.length === 1 ? 'Copy' : m);
+  const tableWidth =
+    FRAME_W + SCREENSHOT_W + VAR_W + DESC_W + modes.length * modeColW + AX_W + COMMENTS_W + SIGNOFF_W;
 
   const rows: TableRow[] = [];
 
@@ -179,7 +186,10 @@ function buildFrameTable(
         headerCell('Screenshot', SCREENSHOT_W),
         headerCell('Variable', VAR_W),
         headerCell('Description', DESC_W),
-        ...modes.map((m) => headerCell(m, modeColW)),
+        ...modes.map((m) => headerCell(modeHeader(m), modeColW)),
+        headerCell('Accessibility', AX_W),
+        headerCell('Comments', COMMENTS_W),
+        headerCell('Sign off', SIGNOFF_W),
       ],
     }),
   );
@@ -227,6 +237,9 @@ function buildFrameTable(
             ...modes.map((m) =>
               dataCell([paragraph(v.values[m] ?? '')], modeColW, isFirst),
             ),
+            dataCell([paragraph('')], AX_W, isFirst),
+            dataCell([paragraph('')], COMMENTS_W, isFirst),
+            dataCell([paragraph('')], SIGNOFF_W, isFirst),
           ],
         }),
       );
@@ -234,7 +247,7 @@ function buildFrameTable(
   }
 
   return new Table({
-    width: { size: 9000, type: WidthType.DXA },
+    width: { size: tableWidth, type: WidthType.DXA },
     rows,
     borders: {
       top: BORDER,
