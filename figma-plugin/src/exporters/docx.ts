@@ -67,7 +67,7 @@ const MODE_W = 1800; // each mode / Copy column
 // Review columns reviewers fill in by hand.
 const AX_W = 1600; // Accessibility
 const COMMENTS_W = 2200; // Comments
-const SIGNOFF_W = 1400; // Sign off
+const SIGNOFF_W = 1900; // Sign off (fits "Compliance" + checkbox)
 
 const BORDER = {
   style: BorderStyle.SINGLE,
@@ -299,7 +299,11 @@ function buildFrameTable(
             ),
             dataCell([paragraph('')], AX_W, isFirst),
             dataCell([paragraph('')], COMMENTS_W, isFirst),
-            dataCell([checkboxParagraph()], SIGNOFF_W, isFirst),
+            dataCell(
+              [checkboxParagraph('Editor'), checkboxParagraph('Compliance')],
+              SIGNOFF_W,
+              isFirst,
+            ),
           ],
         }),
       );
@@ -385,10 +389,13 @@ function imageParagraph(
   });
 }
 
-// An interactive Word checkbox (legacy form-field content control). Survives
-// import into Confluence as a checkbox, per testing.
-function checkboxParagraph(): Paragraph {
-  return new Paragraph({ children: [new CheckBox({ checked: false })] });
+// A labelled interactive Word checkbox (legacy form-field content control).
+// Survives import into Confluence as a checkbox, per testing.
+function checkboxParagraph(label: string): Paragraph {
+  return new Paragraph({
+    spacing: { after: 40 },
+    children: [new CheckBox({ checked: false }), new TextRun({ text: ` ${label}`, size: 18 })],
+  });
 }
 
 function captionParagraph(text: string): Paragraph {

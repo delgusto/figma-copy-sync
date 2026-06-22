@@ -54176,7 +54176,7 @@
   var MODE_W = 1800;
   var AX_W = 1600;
   var COMMENTS_W = 2200;
-  var SIGNOFF_W = 1400;
+  var SIGNOFF_W = 1900;
   var BORDER = {
     style: BorderStyle.SINGLE,
     size: 4,
@@ -54359,7 +54359,11 @@
               ),
               dataCell([paragraph("")], AX_W, isFirst),
               dataCell([paragraph("")], COMMENTS_W, isFirst),
-              dataCell([checkboxParagraph()], SIGNOFF_W, isFirst)
+              dataCell(
+                [checkboxParagraph("Editor"), checkboxParagraph("Compliance")],
+                SIGNOFF_W,
+                isFirst
+              )
             ]
           })
         );
@@ -54428,8 +54432,11 @@
       ]
     });
   }
-  function checkboxParagraph() {
-    return new Paragraph({ children: [new CheckBox({ checked: false })] });
+  function checkboxParagraph(label) {
+    return new Paragraph({
+      spacing: { after: 40 },
+      children: [new CheckBox({ checked: false }), new TextRun({ text: ` ${label}`, size: 18 })]
+    });
   }
   function captionParagraph(text) {
     return new Paragraph({
