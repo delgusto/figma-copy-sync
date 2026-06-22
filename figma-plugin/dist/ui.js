@@ -54015,10 +54015,15 @@
   // figma-plugin/src/exporters/docx.ts
   var NO_FRAME2 = "\u2014 (no frame)";
   var MAX_IMG_W = 280;
+  var CROP_DISPLAY_W = 320;
   function scaleToWidth(w, h, maxW = MAX_IMG_W) {
     if (w <= 0 || h <= 0) return { width: maxW, height: Math.round(maxW * 0.5) };
     const width = Math.min(maxW, w);
     return { width, height: Math.max(1, Math.round(width * (h / w))) };
+  }
+  function scaleToTargetWidth(w, h, targetW = CROP_DISPLAY_W) {
+    if (w <= 0 || h <= 0) return { width: targetW, height: Math.round(targetW * 0.5) };
+    return { width: targetW, height: Math.max(1, Math.round(targetW * (h / w))) };
   }
   var FRAME_W = 1400;
   var SCREENSHOT_W = 3e3;
@@ -54140,7 +54145,7 @@
         const screenshotChildren = [];
         if (crop) {
           screenshotChildren.push(captionParagraph("Zoomed"));
-          screenshotChildren.push(imageParagraph(crop.bytes, scaleToWidth(crop.width, crop.height)));
+          screenshotChildren.push(imageParagraph(crop.bytes, scaleToTargetWidth(crop.width, crop.height)));
         }
         if (imageBytes) {
           screenshotChildren.push(captionParagraph("In context"));
@@ -54428,7 +54433,7 @@ ${sections.join("\n")}
     }
     const itemW = maxX - minX;
     const itemH = maxY - minY;
-    const margin = Math.round(Math.max(itemW, itemH) * 0.6 + 24);
+    const margin = Math.round(Math.max(itemW, itemH) * 0.35 + 16);
     const cropX = Math.max(0, Math.floor(minX - margin));
     const cropY = Math.max(0, Math.floor(minY - margin));
     const cropW = Math.min(bitmap.width - cropX, Math.ceil(itemW + margin * 2));

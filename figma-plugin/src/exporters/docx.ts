@@ -29,10 +29,12 @@ import type { CropResult } from '../annotate';
 
 const NO_FRAME = '— (no frame)';
 
-// Max display width for embedded images (px). Heights derive from each
-// image's true aspect ratio so nothing is squished.
-const MAX_IMG_W = 280;
+// Display widths for embedded images (px). Heights derive from each image's
+// true aspect ratio so nothing is squished.
+const MAX_IMG_W = 280; // in-context full frame: cap, never upscale
+const CROP_DISPLAY_W = 320; // zoomed crop: fixed target, upscaled if small
 
+// In-context shot: cap at maxW, never enlarge past native size.
 function scaleToWidth(
   w: number,
   h: number,
@@ -41,6 +43,17 @@ function scaleToWidth(
   if (w <= 0 || h <= 0) return { width: maxW, height: Math.round(maxW * 0.5) };
   const width = Math.min(maxW, w);
   return { width, height: Math.max(1, Math.round(width * (h / w))) };
+}
+
+// Zoomed crop: render at a fixed target width regardless of native size, so
+// small crops are enlarged and read clearly in the doc.
+function scaleToTargetWidth(
+  w: number,
+  h: number,
+  targetW = CROP_DISPLAY_W,
+): { width: number; height: number } {
+  if (w <= 0 || h <= 0) return { width: targetW, height: Math.round(targetW * 0.5) };
+  return { width: targetW, height: Math.max(1, Math.round(targetW * (h / w))) };
 }
 
 // Table column widths in DXA (1/20 of a point). With the review columns the
@@ -210,7 +223,7 @@ function buildFrameTable(
       const screenshotChildren: Paragraph[] = [];
       if (crop) {
         screenshotChildren.push(captionParagraph('Zoomed'));
-        screenshotChildren.push(imageParagraph(crop.bytes, scaleToWidth(crop.width, crop.height)));
+        screenshotChildren.push(imageParagraph(crop.bytes, scaleToTargetWidth(crop.width, crop.height)));
       }
       if (imageBytes) {
         screenshotChildren.push(captionParagraph('In context'));

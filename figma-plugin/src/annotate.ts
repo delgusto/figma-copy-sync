@@ -155,9 +155,10 @@ export async function cropFrameForVariable(
   }
 
   // Margin scales with item size so the crop reads but stays zoomed in.
+  // Tight on purpose — the full-frame shot already provides wider context.
   const itemW = maxX - minX;
   const itemH = maxY - minY;
-  const margin = Math.round(Math.max(itemW, itemH) * 0.6 + 24);
+  const margin = Math.round(Math.max(itemW, itemH) * 0.35 + 16);
 
   const cropX = Math.max(0, Math.floor(minX - margin));
   const cropY = Math.max(0, Math.floor(minY - margin));
