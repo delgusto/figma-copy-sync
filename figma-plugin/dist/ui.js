@@ -54014,8 +54014,12 @@
 
   // figma-plugin/src/exporters/docx.ts
   var NO_FRAME2 = "\u2014 (no frame)";
-  var IMAGE_PX_WIDTH2 = 280;
-  var IMAGE_PX_HEIGHT2 = 130;
+  var MAX_IMG_W = 280;
+  function scaleToWidth(w, h, maxW = MAX_IMG_W) {
+    if (w <= 0 || h <= 0) return { width: maxW, height: Math.round(maxW * 0.5) };
+    const width = Math.min(maxW, w);
+    return { width, height: Math.max(1, Math.round(width * (h / w))) };
+  }
   var FRAME_W = 1400;
   var SCREENSHOT_W = 3e3;
   var VAR_W = 1800;
@@ -54036,7 +54040,9 @@
     color: "auto",
     fill: "F5F5F5"
   };
-  async function buildDocx(payload, perVarBytes) {
+  async function buildDocx(payload, perVarBytes, perVarCrop = /* @__PURE__ */ new Map()) {
+    const frameByName = /* @__PURE__ */ new Map();
+    for (const f of payload.frames) frameByName.set(f.name, f);
     const children = [];
     children.push(
       new Paragraph({
@@ -54071,7 +54077,7 @@
           spacing: { before: 240, after: 120 }
         })
       );
-      children.push(buildFrameTable(vars, payload.modes, perVarBytes));
+      children.push(buildFrameTable(vars, payload.modes, perVarBytes, perVarCrop, frameByName));
       children.push(new Paragraph({ children: [new TextRun("")] }));
     }
     const doc = new File({
@@ -54083,7 +54089,7 @@
     const ab = await blob.arrayBuffer();
     return new Uint8Array(ab);
   }
-  function buildFrameTable(vars, modes, perVarBytes) {
+  function buildFrameTable(vars, modes, perVarBytes, perVarCrop, frameByName) {
     const frameGroups = /* @__PURE__ */ new Map();
     for (const v of vars) {
       const topFrameNames = v.occurrences.length ? Array.from(new Set(v.occurrences.map((o) => o.topFrameName))) : [];
@@ -54119,7 +54125,24 @@
       for (let i = 0; i < frameVars.length; i++) {
         const v = frameVars[i];
         const isFirst = i === 0;
+        const crop = frameName !== NO_FRAME2 ? perVarCrop.get(frameName)?.get(v.id) : void 0;
         const imageBytes = frameName !== NO_FRAME2 ? perVarBytes.get(frameName)?.get(v.id) : void 0;
+        const frame = frameByName.get(frameName);
+        const screenshotChildren = [];
+        if (crop) {
+          screenshotChildren.push(captionParagraph("Zoomed"));
+          screenshotChildren.push(imageParagraph(crop.bytes, scaleToWidth(crop.width, crop.height)));
+        }
+        if (imageBytes) {
+          screenshotChildren.push(captionParagraph("In context"));
+          screenshotChildren.push(
+            imageParagraph(
+              imageBytes,
+              scaleToWidth(frame?.width ?? MAX_IMG_W, frame?.height ?? MAX_IMG_W * 0.5)
+            )
+          );
+        }
+        if (!screenshotChildren.length) screenshotChildren.push(paragraph(""));
         rows.push(
           new TableRow({
             children: [
@@ -54128,11 +54151,7 @@
                 FRAME_W,
                 isFirst
               ),
-              dataCell(
-                imageBytes ? [imageParagraph(imageBytes)] : [paragraph("")],
-                SCREENSHOT_W,
-                isFirst
-              ),
+              dataCell(screenshotChildren, SCREENSHOT_W, isFirst),
               dataCell([paragraph(v.id, { font: "Courier New", size: 18 })], VAR_W, isFirst),
               dataCell([paragraph(v.description)], DESC_W, isFirst),
               ...modes.map(
@@ -54194,16 +54213,22 @@
       ]
     });
   }
-  function imageParagraph(bytes) {
+  function imageParagraph(bytes, dims) {
     return new Paragraph({
       alignment: AlignmentType.LEFT,
       children: [
         new ImageRun({
           data: bytes,
-          transformation: { width: IMAGE_PX_WIDTH2, height: IMAGE_PX_HEIGHT2 },
+          transformation: { width: dims.width, height: dims.height },
           type: "png"
         })
       ]
+    });
+  }
+  function captionParagraph(text) {
+    return new Paragraph({
+      spacing: { before: 40, after: 20 },
+      children: [new TextRun({ text, size: 14, color: "888888", bold: true })]
     });
   }
 
@@ -54375,28 +54400,68 @@ ${sections.join("\n")}
     const bitmap = await bytesToImageBitmap(frame.bytes);
     return await drawAndEncode(bitmap, frame.rects, variableName);
   }
+  async function cropFrameForVariable(frame, variableName) {
+    const matching = frame.rects.filter((r) => r.variableName === variableName);
+    if (!matching.length) return null;
+    const bitmap = await bytesToImageBitmap(frame.bytes);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const r of matching) {
+      minX = Math.min(minX, r.x);
+      minY = Math.min(minY, r.y);
+      maxX = Math.max(maxX, r.x + r.w);
+      maxY = Math.max(maxY, r.y + r.h);
+    }
+    const itemW = maxX - minX;
+    const itemH = maxY - minY;
+    const margin = Math.round(Math.max(itemW, itemH) * 0.6 + 24);
+    const cropX = Math.max(0, Math.floor(minX - margin));
+    const cropY = Math.max(0, Math.floor(minY - margin));
+    const cropW = Math.min(bitmap.width - cropX, Math.ceil(itemW + margin * 2));
+    const cropH = Math.min(bitmap.height - cropY, Math.ceil(itemH + margin * 2));
+    const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(cropW, cropH) : Object.assign(document.createElement("canvas"), { width: cropW, height: cropH });
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    const baseStroke = Math.max(2, Math.round(Math.min(cropW, cropH) / 200));
+    const pad = Math.round(baseStroke * 1.5);
+    ctx.lineWidth = Math.round(baseStroke * 1.6);
+    ctx.strokeStyle = HIGHLIGHT_COLOR;
+    for (const r of matching) {
+      ctx.strokeRect(r.x - cropX - pad, r.y - cropY - pad, r.w + pad * 2, r.h + pad * 2);
+    }
+    const bytes = await canvasToBytes(canvas);
+    return { bytes, width: cropW, height: cropH };
+  }
 
   // figma-plugin/src/zip.ts
   async function buildAndDownloadBundle(payload, options = { highlight: true }) {
     const originalFrames = payload.frames;
     const zipFrames = options.highlight ? await Promise.all(originalFrames.map((f) => annotateFrameAll(f))) : originalFrames;
     const perVarBytes = /* @__PURE__ */ new Map();
+    const perVarCrop = /* @__PURE__ */ new Map();
     if (options.highlight) {
       for (const frame of originalFrames) {
         const inner = /* @__PURE__ */ new Map();
+        const innerCrop = /* @__PURE__ */ new Map();
         const seenVarNames = /* @__PURE__ */ new Set();
         for (const r of frame.rects) {
           if (seenVarNames.has(r.variableName)) continue;
           seenVarNames.add(r.variableName);
           const bytes = await annotateFrameForVariable(frame, r.variableName);
           inner.set(r.variableName, bytes);
+          const crop = await cropFrameForVariable(frame, r.variableName);
+          if (crop) innerCrop.set(r.variableName, crop);
         }
         if (inner.size) perVarBytes.set(frame.name, inner);
+        if (innerCrop.size) perVarCrop.set(frame.name, innerCrop);
       }
     }
     const html = buildHtml(payload);
     const xlsx = await buildXlsx(payload, perVarBytes);
-    const docx = await buildDocx(payload, perVarBytes);
+    const docx = await buildDocx(payload, perVarBytes, perVarCrop);
     const zip = new import_jszip.default();
     zip.file("strings.json", buildJson(payload));
     zip.file("strings.xlsx", xlsx);

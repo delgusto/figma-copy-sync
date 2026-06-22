@@ -4,7 +4,12 @@ import { buildJson } from './exporters/json';
 import { buildXlsx } from './exporters/xlsx';
 import { buildDocx } from './exporters/docx';
 import { buildHtml } from './exporters/html';
-import { annotateFrameAll, annotateFrameForVariable } from './annotate';
+import {
+  annotateFrameAll,
+  annotateFrameForVariable,
+  cropFrameForVariable,
+  type CropResult,
+} from './annotate';
 
 // Build a ZIP in the UI iframe and trigger a browser download.
 // All work runs client-side in the plugin's iframe.
@@ -28,9 +33,13 @@ export async function buildAndDownloadBundle(
   //    per (frame, variable) row with only that variable's rect highlighted.
   //    Highlight off → empty map, XLSX rows get no embedded screenshots.
   const perVarBytes = new Map<string, Map<string, Uint8Array>>();
+  // Zoomed close-up crops, keyed the same way. DOCX stacks these above the
+  // full-frame shot so reviewers get a readable view of the copy item.
+  const perVarCrop = new Map<string, Map<string, CropResult>>();
   if (options.highlight) {
     for (const frame of originalFrames) {
       const inner = new Map<string, Uint8Array>();
+      const innerCrop = new Map<string, CropResult>();
       const seenVarNames = new Set<string>();
       for (const r of frame.rects) {
         if (seenVarNames.has(r.variableName)) continue;
@@ -38,8 +47,11 @@ export async function buildAndDownloadBundle(
         const bytes = await annotateFrameForVariable(frame, r.variableName);
         // key by canonical variable name (matches VariableEntry.id)
         inner.set(r.variableName, bytes);
+        const crop = await cropFrameForVariable(frame, r.variableName);
+        if (crop) innerCrop.set(r.variableName, crop);
       }
       if (inner.size) perVarBytes.set(frame.name, inner);
+      if (innerCrop.size) perVarCrop.set(frame.name, innerCrop);
     }
   }
 
@@ -48,7 +60,7 @@ export async function buildAndDownloadBundle(
   // XLSX is the Confluence-friendly artefact — embeds per-variable PNGs inline.
   const html = buildHtml(payload);
   const xlsx = await buildXlsx(payload, perVarBytes);
-  const docx = await buildDocx(payload, perVarBytes);
+  const docx = await buildDocx(payload, perVarBytes, perVarCrop);
 
   const zip = new JSZip();
   zip.file('strings.json', buildJson(payload));

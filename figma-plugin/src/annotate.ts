@@ -121,3 +121,68 @@ export async function annotateFrameForVariable(
   const bitmap = await bytesToImageBitmap(frame.bytes);
   return await drawAndEncode(bitmap, frame.rects, variableName);
 }
+
+export interface CropResult {
+  bytes: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
+ * Zoomed close-up cropped to the supplied variable's rect(s) plus a margin,
+ * with the highlight drawn. Gives a readable shot of the actual copy item,
+ * distinct from the full-frame "in context" view. Returns null if the
+ * variable has no rect in this frame.
+ */
+export async function cropFrameForVariable(
+  frame: FramePng,
+  variableName: string,
+): Promise<CropResult | null> {
+  const matching = frame.rects.filter((r) => r.variableName === variableName);
+  if (!matching.length) return null;
+  const bitmap = await bytesToImageBitmap(frame.bytes);
+
+  // Union bbox of this variable's rect(s).
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const r of matching) {
+    minX = Math.min(minX, r.x);
+    minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, r.x + r.w);
+    maxY = Math.max(maxY, r.y + r.h);
+  }
+
+  // Margin scales with item size so the crop reads but stays zoomed in.
+  const itemW = maxX - minX;
+  const itemH = maxY - minY;
+  const margin = Math.round(Math.max(itemW, itemH) * 0.6 + 24);
+
+  const cropX = Math.max(0, Math.floor(minX - margin));
+  const cropY = Math.max(0, Math.floor(minY - margin));
+  const cropW = Math.min(bitmap.width - cropX, Math.ceil(itemW + margin * 2));
+  const cropH = Math.min(bitmap.height - cropY, Math.ceil(itemH + margin * 2));
+
+  const canvas: any =
+    typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(cropW, cropH)
+      : Object.assign(document.createElement('canvas'), { width: cropW, height: cropH });
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Blit just the crop region of the source to 0,0.
+  ctx.drawImage(bitmap as any, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  // Highlight rect(s), shifted into crop-local coordinates.
+  const baseStroke = Math.max(2, Math.round(Math.min(cropW, cropH) / 200));
+  const pad = Math.round(baseStroke * 1.5);
+  ctx.lineWidth = Math.round(baseStroke * 1.6);
+  ctx.strokeStyle = HIGHLIGHT_COLOR;
+  for (const r of matching) {
+    ctx.strokeRect(r.x - cropX - pad, r.y - cropY - pad, r.w + pad * 2, r.h + pad * 2);
+  }
+
+  const bytes = await canvasToBytes(canvas);
+  return { bytes, width: cropW, height: cropH };
+}

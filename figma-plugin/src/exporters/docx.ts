@@ -24,12 +24,24 @@ import {
   ShadingType,
   VerticalAlign,
 } from 'docx';
-import type { ExportPayload, VariableEntry } from '../types';
+import type { ExportPayload, VariableEntry, FramePng } from '../types';
+import type { CropResult } from '../annotate';
 
 const NO_FRAME = '— (no frame)';
 
-const IMAGE_PX_WIDTH = 280;
-const IMAGE_PX_HEIGHT = 130;
+// Max display width for embedded images (px). Heights derive from each
+// image's true aspect ratio so nothing is squished.
+const MAX_IMG_W = 280;
+
+function scaleToWidth(
+  w: number,
+  h: number,
+  maxW = MAX_IMG_W,
+): { width: number; height: number } {
+  if (w <= 0 || h <= 0) return { width: maxW, height: Math.round(maxW * 0.5) };
+  const width = Math.min(maxW, w);
+  return { width, height: Math.max(1, Math.round(width * (h / w))) };
+}
 
 // Table column widths in DXA (1/20 of a point). Page width ~ 12240 DXA
 // (US Letter, full width minus margins ≈ 9000 DXA). Distribute:
@@ -58,7 +70,11 @@ const HEADER_SHADING = {
 export async function buildDocx(
   payload: ExportPayload,
   perVarBytes: Map<string, Map<string, Uint8Array>>,
+  perVarCrop: Map<string, Map<string, CropResult>> = new Map(),
 ): Promise<Uint8Array> {
+  // Frame dimensions by name, so the in-context shot keeps its aspect ratio.
+  const frameByName = new Map<string, FramePng>();
+  for (const f of payload.frames) frameByName.set(f.name, f);
   const children: Array<Paragraph | Table> = [];
 
   // Title
@@ -100,7 +116,7 @@ export async function buildDocx(
         spacing: { before: 240, after: 120 },
       }),
     );
-    children.push(buildFrameTable(vars, payload.modes, perVarBytes));
+    children.push(buildFrameTable(vars, payload.modes, perVarBytes, perVarCrop, frameByName));
     // Spacer so consecutive tables don't merge visually.
     children.push(new Paragraph({ children: [new TextRun('')] }));
   }
@@ -123,6 +139,8 @@ function buildFrameTable(
   vars: VariableEntry[],
   modes: string[],
   perVarBytes: Map<string, Map<string, Uint8Array>>,
+  perVarCrop: Map<string, Map<string, CropResult>>,
+  frameByName: Map<string, FramePng>,
 ): Table {
   // Frame-centric grouping — same as html.ts / xlsx.ts.
   const frameGroups = new Map<string, VariableEntry[]>();
@@ -172,8 +190,28 @@ function buildFrameTable(
       const v = frameVars[i];
       const isFirst = i === 0;
 
+      const crop = frameName !== NO_FRAME ? perVarCrop.get(frameName)?.get(v.id) : undefined;
       const imageBytes =
         frameName !== NO_FRAME ? perVarBytes.get(frameName)?.get(v.id) : undefined;
+      const frame = frameByName.get(frameName);
+
+      // Screenshot cell: zoomed close-up on top (readable copy), then the
+      // full-frame "in context" shot below. Both kept aspect-correct.
+      const screenshotChildren: Paragraph[] = [];
+      if (crop) {
+        screenshotChildren.push(captionParagraph('Zoomed'));
+        screenshotChildren.push(imageParagraph(crop.bytes, scaleToWidth(crop.width, crop.height)));
+      }
+      if (imageBytes) {
+        screenshotChildren.push(captionParagraph('In context'));
+        screenshotChildren.push(
+          imageParagraph(
+            imageBytes,
+            scaleToWidth(frame?.width ?? MAX_IMG_W, frame?.height ?? MAX_IMG_W * 0.5),
+          ),
+        );
+      }
+      if (!screenshotChildren.length) screenshotChildren.push(paragraph(''));
 
       rows.push(
         new TableRow({
@@ -183,11 +221,7 @@ function buildFrameTable(
               FRAME_W,
               isFirst,
             ),
-            dataCell(
-              imageBytes ? [imageParagraph(imageBytes)] : [paragraph('')],
-              SCREENSHOT_W,
-              isFirst,
-            ),
+            dataCell(screenshotChildren, SCREENSHOT_W, isFirst),
             dataCell([paragraph(v.id, { font: 'Courier New', size: 18 })], VAR_W, isFirst),
             dataCell([paragraph(v.description)], DESC_W, isFirst),
             ...modes.map((m) =>
@@ -262,15 +296,25 @@ function paragraph(
   });
 }
 
-function imageParagraph(bytes: Uint8Array): Paragraph {
+function imageParagraph(
+  bytes: Uint8Array,
+  dims: { width: number; height: number },
+): Paragraph {
   return new Paragraph({
     alignment: AlignmentType.LEFT,
     children: [
       new ImageRun({
         data: bytes,
-        transformation: { width: IMAGE_PX_WIDTH, height: IMAGE_PX_HEIGHT },
+        transformation: { width: dims.width, height: dims.height },
         type: 'png',
       }),
     ],
+  });
+}
+
+function captionParagraph(text: string): Paragraph {
+  return new Paragraph({
+    spacing: { before: 40, after: 20 },
+    children: [new TextRun({ text, size: 14, color: '888888', bold: true })],
   });
 }
