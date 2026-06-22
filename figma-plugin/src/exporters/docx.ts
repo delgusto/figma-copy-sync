@@ -24,7 +24,7 @@ import {
   ShadingType,
   VerticalAlign,
 } from 'docx';
-import type { ExportPayload, VariableEntry, FramePng } from '../types';
+import type { ExportPayload, VariableEntry, FramePng, TeamMember } from '../types';
 import type { CropResult } from '../annotate';
 
 const NO_FRAME = '— (no frame)';
@@ -118,6 +118,20 @@ export async function buildDocx(
     }),
   );
 
+  // Team table (skip rows with neither role nor name).
+  const team = (payload.team ?? []).filter((m) => m.role.trim() || m.name.trim());
+  if (team.length) {
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_2,
+        children: [new TextRun({ text: 'Team', bold: true })],
+        spacing: { before: 240, after: 120 },
+      }),
+    );
+    children.push(buildTeamTable(team));
+    children.push(new Paragraph({ children: [new TextRun('')] }));
+  }
+
   // Group by collection
   const byCollection = new Map<string, VariableEntry[]>();
   for (const v of payload.variables) {
@@ -150,6 +164,38 @@ export async function buildDocx(
   const blob = await Packer.toBlob(doc);
   const ab = await blob.arrayBuffer();
   return new Uint8Array(ab);
+}
+
+function buildTeamTable(team: TeamMember[]): Table {
+  const ROLE_W = 2600;
+  const NAME_W = 4000;
+  const rows: TableRow[] = [
+    new TableRow({
+      tableHeader: true,
+      children: [headerCell('Role', ROLE_W), headerCell('Name', NAME_W)],
+    }),
+    ...team.map(
+      (m) =>
+        new TableRow({
+          children: [
+            dataCell([paragraph(m.role)], ROLE_W, false),
+            dataCell([paragraph(m.name)], NAME_W, false),
+          ],
+        }),
+    ),
+  ];
+  return new Table({
+    width: { size: ROLE_W + NAME_W, type: WidthType.DXA },
+    rows,
+    borders: {
+      top: BORDER,
+      bottom: BORDER,
+      left: BORDER,
+      right: BORDER,
+      insideHorizontal: BORDER,
+      insideVertical: BORDER,
+    },
+  });
 }
 
 function buildFrameTable(

@@ -1,4 +1,4 @@
-import type { ExportPayload, FramePng, VariableEntry } from '../types';
+import type { ExportPayload, FramePng, VariableEntry, TeamMember } from '../types';
 
 // HTML table for local viewing of the export bundle.
 //
@@ -43,8 +43,25 @@ export function buildHtml(payload: ExportPayload): string {
 <h2 style="${h2Style}">${escapeHtml(payload.fileName)} — UX copy</h2>
 <p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} · ${varCount} string${varCount === 1 ? '' : 's'} · ${frameCount} frame${frameCount === 1 ? '' : 's'} · modes: ${payload.modes.map(escapeHtml).join(', ')}</p>
 <p style="${pStyle};color:#888">Open this file from the unzipped bundle to see screenshots. For Confluence, import <code>strings.docx</code> (Word) or <code>strings.xlsx</code> — both embed images inline. Do not copy/paste from this HTML into Confluence; it drops images.</p>
+${buildTeamSection(payload.team)}
 ${sections.join('\n')}
 </body></html>`;
+}
+
+function buildTeamSection(team: TeamMember[] | undefined): string {
+  const members = (team ?? []).filter((m) => m.role.trim() || m.name.trim());
+  if (!members.length) return '';
+  const rows = members
+    .map(
+      (m) =>
+        `<tr><td style="${tdStyle}">${escapeHtml(m.role)}</td><td style="${tdStyle}">${escapeHtml(m.name)}</td></tr>`,
+    )
+    .join('');
+  return `<h3 style="${h3Style}">Team</h3>
+<table style="${tableStyle}" cellspacing="0" cellpadding="0">
+  <thead><tr><th style="${thStyle};min-width:160px">Role</th><th style="${thStyle}">Name</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>`;
 }
 
 function buildFrameTable(

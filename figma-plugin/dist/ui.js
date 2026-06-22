@@ -33328,6 +33328,9 @@
   var import_client = __toESM(require_client());
   var import_react = __toESM(require_react());
 
+  // figma-plugin/src/types.ts
+  var MAX_TEAM_MEMBERS = 12;
+
   // figma-plugin/src/zip.ts
   var import_jszip = __toESM(require_jszip_min());
 
@@ -33365,6 +33368,7 @@
     const wb = new import_exceljs.default.Workbook();
     wb.creator = "Copy Sync";
     wb.created = new Date(payload.exportedAt);
+    addTeamSheet(wb, payload.team);
     const ws = wb.addWorksheet("strings", {
       views: [{ state: "frozen", ySplit: 1 }]
     });
@@ -33471,6 +33475,36 @@
     ]);
     const buffer2 = await wb.xlsx.writeBuffer();
     return new Uint8Array(buffer2);
+  }
+  function addTeamSheet(wb, team) {
+    const members = (team ?? []).filter((m) => m.role.trim() || m.name.trim());
+    if (!members.length) return;
+    const ws = wb.addWorksheet("Team", { views: [{ state: "frozen", ySplit: 1 }] });
+    ws.columns = [
+      { header: "Role", key: "role", width: 32 },
+      { header: "Name", key: "name", width: 36 }
+    ];
+    const headerRow = ws.getRow(1);
+    headerRow.height = 22;
+    headerRow.font = { bold: true, size: 11, color: { argb: "FF1A1A1A" } };
+    headerRow.alignment = { vertical: "middle", horizontal: "left" };
+    const border = {
+      top: { style: "thin", color: { argb: "FFDDDDDD" } },
+      bottom: { style: "thin", color: { argb: "FFDDDDDD" } },
+      left: { style: "thin", color: { argb: "FFDDDDDD" } },
+      right: { style: "thin", color: { argb: "FFDDDDDD" } }
+    };
+    headerRow.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F5F5" } };
+      cell.border = border;
+    });
+    for (const m of members) {
+      const row = ws.addRow({ role: m.role, name: m.name });
+      row.eachCell((cell) => {
+        cell.border = border;
+        cell.alignment = { vertical: "top", wrapText: true };
+      });
+    }
   }
 
   // node_modules/docx/dist/index.mjs
@@ -54073,6 +54107,18 @@
         ]
       })
     );
+    const team = (payload.team ?? []).filter((m) => m.role.trim() || m.name.trim());
+    if (team.length) {
+      children.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          children: [new TextRun({ text: "Team", bold: true })],
+          spacing: { before: 240, after: 120 }
+        })
+      );
+      children.push(buildTeamTable(team));
+      children.push(new Paragraph({ children: [new TextRun("")] }));
+    }
     const byCollection = /* @__PURE__ */ new Map();
     for (const v of payload.variables) {
       if (!byCollection.has(v.collectionName)) byCollection.set(v.collectionName, []);
@@ -54097,6 +54143,36 @@
     const blob = await Packer.toBlob(doc);
     const ab = await blob.arrayBuffer();
     return new Uint8Array(ab);
+  }
+  function buildTeamTable(team) {
+    const ROLE_W = 2600;
+    const NAME_W = 4e3;
+    const rows = [
+      new TableRow({
+        tableHeader: true,
+        children: [headerCell("Role", ROLE_W), headerCell("Name", NAME_W)]
+      }),
+      ...team.map(
+        (m) => new TableRow({
+          children: [
+            dataCell([paragraph(m.role)], ROLE_W, false),
+            dataCell([paragraph(m.name)], NAME_W, false)
+          ]
+        })
+      )
+    ];
+    return new Table({
+      width: { size: ROLE_W + NAME_W, type: WidthType.DXA },
+      rows,
+      borders: {
+        top: BORDER,
+        bottom: BORDER,
+        left: BORDER,
+        right: BORDER,
+        insideHorizontal: BORDER,
+        insideVertical: BORDER
+      }
+    });
   }
   function buildFrameTable(vars, modes, perVarBytes, perVarCrop, frameByName) {
     const frameGroups = /* @__PURE__ */ new Map();
@@ -54270,8 +54346,21 @@
 <h2 style="${h2Style}">${escapeHtml(payload.fileName)} \u2014 UX copy</h2>
 <p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} \xB7 ${varCount} string${varCount === 1 ? "" : "s"} \xB7 ${frameCount} frame${frameCount === 1 ? "" : "s"} \xB7 modes: ${payload.modes.map(escapeHtml).join(", ")}</p>
 <p style="${pStyle};color:#888">Open this file from the unzipped bundle to see screenshots. For Confluence, import <code>strings.docx</code> (Word) or <code>strings.xlsx</code> \u2014 both embed images inline. Do not copy/paste from this HTML into Confluence; it drops images.</p>
+${buildTeamSection(payload.team)}
 ${sections.join("\n")}
 </body></html>`;
+  }
+  function buildTeamSection(team) {
+    const members = (team ?? []).filter((m) => m.role.trim() || m.name.trim());
+    if (!members.length) return "";
+    const rows = members.map(
+      (m) => `<tr><td style="${tdStyle}">${escapeHtml(m.role)}</td><td style="${tdStyle}">${escapeHtml(m.name)}</td></tr>`
+    ).join("");
+    return `<h3 style="${h3Style}">Team</h3>
+<table style="${tableStyle}" cellspacing="0" cellpadding="0">
+  <thead><tr><th style="${thStyle};min-width:160px">Role</th><th style="${thStyle}">Name</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>`;
   }
   function buildFrameTable2(vars, modes, framePngs) {
     const frameGroups = /* @__PURE__ */ new Map();
@@ -54515,6 +54604,20 @@ ${sections.join("\n")}
   function send(msg) {
     parent.postMessage({ pluginMessage: msg }, "*");
   }
+  var DEFAULT_ROLES = [
+    "Product Designer",
+    "UX Writer",
+    "Content Designer",
+    "Product Manager",
+    "Engineer",
+    "Accessibility Specialist"
+  ];
+  function seededTeam() {
+    return DEFAULT_ROLES.map((role) => ({ role, name: "" }));
+  }
+  function newTemplateId() {
+    return `tmpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  }
   async function parseImportXlsx(buffer2) {
     const wb = new import_exceljs2.default.Workbook();
     await wb.xlsx.load(buffer2);
@@ -54593,6 +54696,24 @@ ${sections.join("\n")}
     const [importParseError, setImportParseError] = (0, import_react.useState)(null);
     const [importResult, setImportResult] = (0, import_react.useState)(null);
     const importFileRef = (0, import_react.useRef)(null);
+    const [view, setView] = (0, import_react.useState)("main");
+    const [team, setTeam] = (0, import_react.useState)(seededTeam());
+    const [templates, setTemplates] = (0, import_react.useState)([]);
+    const [defaultTemplateId, setDefaultTemplateId] = (0, import_react.useState)(null);
+    const [selectedTemplateId, setSelectedTemplateId] = (0, import_react.useState)(null);
+    const [savingAs, setSavingAs] = (0, import_react.useState)(false);
+    const [newName, setNewName] = (0, import_react.useState)("");
+    const teamRef = (0, import_react.useRef)(team);
+    (0, import_react.useEffect)(() => {
+      teamRef.current = team;
+    }, [team]);
+    (0, import_react.useEffect)(() => {
+      send({ type: "load-team-settings" });
+    }, []);
+    function persistSettings(next) {
+      const settings = { templates: next.templates, defaultTemplateId: next.defaultTemplateId };
+      send({ type: "save-team-settings", settings });
+    }
     function showToast(level, text, ms = 4e3) {
       setToast({ level, text });
       setTimeout(() => setToast(null), ms);
@@ -54628,7 +54749,7 @@ ${sections.join("\n")}
         } else if (msg.type === "progress") {
           setProgress({ phase: msg.phase, current: msg.current, total: msg.total, label: msg.label });
         } else if (msg.type === "export-result") {
-          const payload = msg.payload;
+          const payload = { ...msg.payload, team: teamRef.current };
           const highlight = highlightRef.current;
           setProgress({ phase: "building-bundle", current: 0, total: 1, label: highlight ? "Annotating frames\u2026" : "Building bundle\u2026" });
           buildAndDownloadBundle(payload, { highlight }).then(() => {
@@ -54638,6 +54759,18 @@ ${sections.join("\n")}
             setProgress({ phase: "idle", current: 0, total: 0 });
             showToast("error", `Bundle failed: ${String(err.message || err)}`);
           });
+        } else if (msg.type === "team-settings") {
+          const { templates: tmpls, defaultTemplateId: defId } = msg.settings;
+          setTemplates(tmpls);
+          setDefaultTemplateId(defId);
+          const def = defId ? tmpls.find((t) => t.id === defId) : void 0;
+          if (def) {
+            setSelectedTemplateId(def.id);
+            setTeam(def.members.length ? def.members.map((m) => ({ ...m })) : seededTeam());
+          } else {
+            setSelectedTemplateId(null);
+            setTeam(seededTeam());
+          }
         } else if (msg.type === "toast") {
           showToast(msg.level, msg.text);
           if (msg.level !== "success") setProgress({ phase: "idle", current: 0, total: 0 });
@@ -54676,6 +54809,57 @@ ${sections.join("\n")}
         selectedPageIds: Array.from(selectedPages),
         exportScale
       });
+    }
+    function updateMember(i, field, value) {
+      setTeam((prev) => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
+    }
+    function addMember() {
+      setTeam((prev) => prev.length >= MAX_TEAM_MEMBERS ? prev : [...prev, { role: "", name: "" }]);
+    }
+    function removeMember(i) {
+      setTeam((prev) => prev.filter((_, idx) => idx !== i));
+    }
+    function loadTemplate(id) {
+      setSelectedTemplateId(id || null);
+      const t = templates.find((x) => x.id === id);
+      if (t) setTeam(t.members.length ? t.members.map((m) => ({ ...m })) : seededTeam());
+    }
+    function saveCurrent() {
+      if (!selectedTemplateId) {
+        setSavingAs(true);
+        return;
+      }
+      const next = templates.map((t) => t.id === selectedTemplateId ? { ...t, members: team } : t);
+      setTemplates(next);
+      persistSettings({ templates: next, defaultTemplateId });
+      showToast("success", "Template saved");
+    }
+    function confirmSaveAs() {
+      const name = newName.trim();
+      if (!name) return;
+      const t = { id: newTemplateId(), name, members: team };
+      const next = [...templates, t];
+      setTemplates(next);
+      setSelectedTemplateId(t.id);
+      persistSettings({ templates: next, defaultTemplateId });
+      setSavingAs(false);
+      setNewName("");
+      showToast("success", `Saved "${name}"`);
+    }
+    function deleteTemplate() {
+      if (!selectedTemplateId) return;
+      const next = templates.filter((t) => t.id !== selectedTemplateId);
+      const nextDefault = defaultTemplateId === selectedTemplateId ? null : defaultTemplateId;
+      setTemplates(next);
+      setDefaultTemplateId(nextDefault);
+      setSelectedTemplateId(null);
+      persistSettings({ templates: next, defaultTemplateId: nextDefault });
+    }
+    function toggleDefault() {
+      if (!selectedTemplateId) return;
+      const nextDefault = defaultTemplateId === selectedTemplateId ? null : selectedTemplateId;
+      setDefaultTemplateId(nextDefault);
+      persistSettings({ templates, defaultTemplateId: nextDefault });
     }
     function handleImportFileChange(e) {
       const file = e.target.files?.[0];
@@ -54781,19 +54965,107 @@ ${sections.join("\n")}
         toast && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { ...toastStyle, background: toastBg(toast.level) }, children: toast.text })
       ] });
     }
+    if (view === "settings") {
+      const isDefault = !!selectedTemplateId && selectedTemplateId === defaultTemplateId;
+      return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", height: "100%" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: headerWrap, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 13, fontWeight: 600 }, children: "Team" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: refreshBtn, onClick: () => setView("main"), children: "Done" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }, children: "Added as a table at the start of every export. Saved per-user across files." })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, overflowY: "auto" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: sectionLabel, children: "Template" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "4px 12px 10px", display: "flex", flexDirection: "column", gap: 8 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", { style: selectStyle, value: selectedTemplateId ?? "", onChange: (e) => loadTemplate(e.target.value), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "", children: "Unsaved team\u2026" }),
+              templates.map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", { value: t.id, children: [
+                t.name,
+                t.id === defaultTemplateId ? " \u2605" : ""
+              ] }, t.id))
+            ] }),
+            savingAs ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 6 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                "input",
+                {
+                  style: { ...inputStyle, flex: 1 },
+                  placeholder: "Template name",
+                  value: newName,
+                  autoFocus: true,
+                  onChange: (e) => setNewName(e.target.value),
+                  onKeyDown: (e) => {
+                    if (e.key === "Enter") confirmSaveAs();
+                    if (e.key === "Escape") {
+                      setSavingAs(false);
+                      setNewName("");
+                    }
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: secondaryBtn, onClick: () => {
+                setSavingAs(false);
+                setNewName("");
+              }, children: "Cancel" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: primaryBtnSm, onClick: confirmSaveAs, disabled: !newName.trim(), children: "Save" })
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" }, children: [
+              selectedTemplateId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: secondaryBtn, onClick: saveCurrent, children: "Save" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: secondaryBtn, onClick: () => setSavingAs(true), children: "Save as\u2026" }),
+              selectedTemplateId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: secondaryBtn, onClick: toggleDefault, title: "Auto-load on open", children: isDefault ? "\u2605 Default" : "\u2606 Set default" }),
+              selectedTemplateId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: secondaryBtn, onClick: deleteTemplate, children: "Delete" })
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { ...sectionLabel, display: "flex", justifyContent: "space-between" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "People" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { textTransform: "none", letterSpacing: 0, fontWeight: 400 }, children: [
+              team.length,
+              " / ",
+              MAX_TEAM_MEMBERS
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: "4px 12px 12px" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 6, fontSize: 10, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: 1 }, children: "Role" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { flex: 1 }, children: "Name" }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { width: 22 } })
+            ] }),
+            team.map((m, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { style: { ...inputStyle, flex: 1 }, placeholder: "Role", value: m.role, onChange: (e) => updateMember(i, "role", e.target.value) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { style: { ...inputStyle, flex: 1 }, placeholder: "Name", value: m.name, onChange: (e) => updateMember(i, "name", e.target.value) }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: removeBtn, onClick: () => removeMember(i), title: "Remove", children: "\xD7" })
+            ] }, i)),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: { ...secondaryBtnFull, marginTop: 4 }, onClick: addMember, disabled: team.length >= MAX_TEAM_MEMBERS, children: "+ Add person" })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: footer, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { style: primaryBtn, onClick: () => setView("main"), children: "Done" }) }),
+        toast && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { ...toastStyle, background: toastBg(toast.level) }, children: toast.text })
+      ] });
+    }
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", height: "100%" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: headerWrap, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, color: "var(--text-secondary)" }, children: "Select collections containing UX copy strings." }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-          "button",
-          {
-            style: refreshBtn,
-            onClick: () => send({ type: "refresh" }),
-            disabled: isWorking || isImporting,
-            title: "Re-scan variables",
-            children: "Refresh"
-          }
-        )
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 6, flexShrink: 0 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              style: refreshBtn,
+              onClick: () => setView("settings"),
+              disabled: isWorking || isImporting,
+              title: "Team settings",
+              children: "\u2699 Team"
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              style: refreshBtn,
+              onClick: () => send({ type: "refresh" }),
+              disabled: isWorking || isImporting,
+              title: "Re-scan variables",
+              children: "Refresh"
+            }
+          )
+        ] })
       ] }) }),
       !initialised ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { padding: 16, color: "var(--text-secondary)" }, children: "Loading variables\u2026" }) : collections.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { padding: 16, color: "var(--text-secondary)", fontSize: 12 }, children: [
         "No string variables found. Create a collection (e.g. ",
@@ -54851,11 +55123,18 @@ ${sections.join("\n")}
           ] }, c.id))
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: footer, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }, children: [
-            totalSelectedStrings,
-            " variable",
-            totalSelectedStrings === 1 ? "" : "s",
-            " selected"
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, color: "var(--text-secondary)", marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 8 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+              totalSelectedStrings,
+              " variable",
+              totalSelectedStrings === 1 ? "" : "s",
+              " selected"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { style: linkBtn, onClick: () => setView("settings"), children: [
+              "Team: ",
+              team.filter((m) => m.role.trim() || m.name.trim()).length,
+              " \xB7 Edit"
+            ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6, cursor: "pointer" }, children: [
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
@@ -54956,6 +55235,11 @@ ${sections.join("\n")}
   var primaryBtn = { width: "100%", padding: "8px 12px", border: "1px solid var(--accent, #0d99ff)", background: "var(--accent, #0d99ff)", color: "var(--accent-text, #fff)", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 };
   var secondaryBtn = { padding: "7px 12px", border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", borderRadius: 6, cursor: "pointer", fontSize: 12 };
   var secondaryBtnFull = { ...secondaryBtn, width: "100%" };
+  var primaryBtnSm = { padding: "7px 12px", border: "1px solid var(--accent, #0d99ff)", background: "var(--accent, #0d99ff)", color: "var(--accent-text, #fff)", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 };
+  var inputStyle = { padding: "6px 8px", border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", borderRadius: 6, fontSize: 12, minWidth: 0 };
+  var selectStyle = { ...inputStyle, width: "100%", cursor: "pointer" };
+  var removeBtn = { width: 22, height: 22, flexShrink: 0, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", borderRadius: 6, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 };
+  var linkBtn = { border: "none", background: "transparent", color: "var(--accent, #0d99ff)", cursor: "pointer", fontSize: 11, padding: 0 };
   var divider = { height: 1, background: "var(--border)", margin: "12px 0" };
   var importErrorBox = { borderRadius: 6, padding: "6px 8px", fontSize: 11, color: "var(--danger, #f33)", marginBottom: 8 };
   var resultSectionHeader = { padding: "4px 12px", fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--text-secondary)" };

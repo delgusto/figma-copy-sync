@@ -24,7 +24,31 @@
   // figma-plugin/src/main.ts
   var PLUGIN_DATA_KEY_SELECTION = "copyCollections";
   var PLUGIN_DATA_KEY_PAGES = "copyPages";
+  var CLIENT_STORAGE_KEY_TEAM = "copyTeamSettings";
   var SKIP_PREFIX = "[skip]";
+  var EMPTY_TEAM_SETTINGS = { templates: [], defaultTemplateId: null };
+  function loadTeamSettings() {
+    return __async(this, null, function* () {
+      let settings = EMPTY_TEAM_SETTINGS;
+      try {
+        const raw = yield figma.clientStorage.getAsync(CLIENT_STORAGE_KEY_TEAM);
+        if (raw && typeof raw === "object" && Array.isArray(raw.templates)) {
+          settings = raw;
+        }
+      } catch (e) {
+      }
+      postToUi({ type: "team-settings", settings });
+    });
+  }
+  function saveTeamSettings(settings) {
+    return __async(this, null, function* () {
+      try {
+        yield figma.clientStorage.setAsync(CLIENT_STORAGE_KEY_TEAM, settings);
+      } catch (e) {
+        postToUi({ type: "toast", level: "error", text: "Could not save team settings" });
+      }
+    });
+  }
   figma.showUI(__html__, { width: 400, height: 700, themeColors: true });
   function postToUi(msg) {
     figma.ui.postMessage(msg);
@@ -514,6 +538,14 @@
     }
     if (msg.type === "refresh") {
       pushInit();
+      return;
+    }
+    if (msg.type === "load-team-settings") {
+      loadTeamSettings();
+      return;
+    }
+    if (msg.type === "save-team-settings") {
+      saveTeamSettings(msg.settings);
       return;
     }
     if (msg.type === "import") {

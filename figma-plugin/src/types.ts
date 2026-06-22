@@ -58,6 +58,27 @@ export interface FramePng {
   rects: CopyRect[];
 }
 
+// One person on the project team (rendered in the team table atop each export).
+export interface TeamMember {
+  role: string;
+  name: string;
+}
+
+// A named, reusable set of team members. Stored per-user via clientStorage.
+export interface TeamTemplate {
+  id: string;
+  name: string;
+  members: TeamMember[];
+}
+
+// All team templates plus which one auto-loads. Persisted across files.
+export interface TeamSettings {
+  templates: TeamTemplate[];
+  defaultTemplateId: string | null;
+}
+
+export const MAX_TEAM_MEMBERS = 12;
+
 export interface ExportPayload {
   fileName: string;
   fileKey: string;
@@ -65,6 +86,7 @@ export interface ExportPayload {
   modes: string[];    // ordered union of modes across selected collections
   variables: VariableEntry[];
   frames: FramePng[];
+  team?: TeamMember[]; // optional project team, set by the UI at export time
 }
 
 // Plugin -> UI messages.
@@ -73,6 +95,7 @@ export type PluginToUiMessage =
   | { type: 'progress'; phase: 'scanning' | 'exporting-frames' | 'building-bundle'; current: number; total: number; label?: string }
   | { type: 'export-result'; payload: ExportPayload }
   | { type: 'toast'; level: 'info' | 'error' | 'success'; text: string }
+  | { type: 'team-settings'; settings: TeamSettings }
   | { type: 'import-result'; updated: number; skippedNames: string[]; modeErrors: string[] };
 
 // Represents one row from an imported XLSX: variable to update + new mode values.
@@ -90,4 +113,6 @@ export type UiToPluginMessage =
   | { type: 'persist-page-selection'; selectedPageIds: string[] }
   | { type: 'refresh' }
   | { type: 'cancel' }
+  | { type: 'load-team-settings' }
+  | { type: 'save-team-settings'; settings: TeamSettings }
   | { type: 'import'; updates: ImportUpdate[] };

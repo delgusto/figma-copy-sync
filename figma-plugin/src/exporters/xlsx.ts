@@ -9,7 +9,7 @@
 // Office Excel macro — images render inline, table preserves formatting.
 
 import ExcelJS from 'exceljs';
-import type { ExportPayload, VariableEntry } from '../types';
+import type { ExportPayload, VariableEntry, TeamMember } from '../types';
 
 const NO_FRAME = '— (no frame)';
 
@@ -29,6 +29,9 @@ export async function buildXlsx(
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Copy Sync';
   wb.created = new Date(payload.exportedAt);
+
+  // Team sheet first, so it's the start of the workbook (skip if empty).
+  addTeamSheet(wb, payload.team);
 
   const ws = wb.addWorksheet('strings', {
     views: [{ state: 'frozen', ySplit: 1 }],
@@ -163,4 +166,39 @@ export async function buildXlsx(
 
   const buffer = await wb.xlsx.writeBuffer();
   return new Uint8Array(buffer as ArrayBuffer);
+}
+
+// Team tab at the front of the workbook: Role | Name. No-op if empty.
+function addTeamSheet(wb: ExcelJS.Workbook, team: TeamMember[] | undefined): void {
+  const members = (team ?? []).filter((m) => m.role.trim() || m.name.trim());
+  if (!members.length) return;
+
+  const ws = wb.addWorksheet('Team', { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.columns = [
+    { header: 'Role', key: 'role', width: 32 },
+    { header: 'Name', key: 'name', width: 36 },
+  ];
+
+  const headerRow = ws.getRow(1);
+  headerRow.height = 22;
+  headerRow.font = { bold: true, size: 11, color: { argb: 'FF1A1A1A' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'left' };
+  const border = {
+    top: { style: 'thin' as const, color: { argb: 'FFDDDDDD' } },
+    bottom: { style: 'thin' as const, color: { argb: 'FFDDDDDD' } },
+    left: { style: 'thin' as const, color: { argb: 'FFDDDDDD' } },
+    right: { style: 'thin' as const, color: { argb: 'FFDDDDDD' } },
+  };
+  headerRow.eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+    cell.border = border;
+  });
+
+  for (const m of members) {
+    const row = ws.addRow({ role: m.role, name: m.name });
+    row.eachCell((cell) => {
+      cell.border = border;
+      cell.alignment = { vertical: 'top', wrapText: true };
+    });
+  }
 }

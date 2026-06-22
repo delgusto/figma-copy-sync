@@ -7,12 +7,35 @@ import type {
   ImportUpdate,
   PageInfo,
   PluginToUiMessage,
+  TeamMember,
+  TeamSettings,
+  TeamTemplate,
   UiToPluginMessage,
 } from './types';
+import { MAX_TEAM_MEMBERS } from './types';
 import { buildAndDownloadBundle } from './zip';
 
 function send(msg: UiToPluginMessage) {
   parent.postMessage({ pluginMessage: msg }, '*');
+}
+
+// Roles pre-filled into a fresh team (names left blank). Editable.
+const DEFAULT_ROLES = [
+  'Product Designer',
+  'UX Writer',
+  'Content Designer',
+  'Product Manager',
+  'Engineer',
+  'Accessibility Specialist',
+];
+
+function seededTeam(): TeamMember[] {
+  return DEFAULT_ROLES.map((role) => ({ role, name: '' }));
+}
+
+function newTemplateId(): string {
+  // Browser context (UI iframe) — Date.now()/random are fine here.
+  return `tmpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 type Toast = { level: 'info' | 'error' | 'success'; text: string } | null;
@@ -147,6 +170,27 @@ function App() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
 
+  // ── Team / settings ──
+  const [view, setView] = useState<'main' | 'settings'>('main');
+  const [team, setTeam] = useState<TeamMember[]>(seededTeam());
+  const [templates, setTemplates] = useState<TeamTemplate[]>([]);
+  const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [savingAs, setSavingAs] = useState(false);
+  const [newName, setNewName] = useState('');
+  // Ref so the (once-registered) export handler reads the live team.
+  const teamRef = useRef(team);
+  useEffect(() => { teamRef.current = team; }, [team]);
+
+  // Ask for saved team settings once on mount.
+  useEffect(() => { send({ type: 'load-team-settings' }); }, []);
+
+  // Push the full settings object to the plugin for persistence.
+  function persistSettings(next: { templates: TeamTemplate[]; defaultTemplateId: string | null }) {
+    const settings: TeamSettings = { templates: next.templates, defaultTemplateId: next.defaultTemplateId };
+    send({ type: 'save-team-settings', settings });
+  }
+
   function showToast(level: 'info' | 'error' | 'success', text: string, ms = 4000) {
     setToast({ level, text });
     setTimeout(() => setToast(null), ms);
@@ -189,7 +233,7 @@ function App() {
       } else if (msg.type === 'progress') {
         setProgress({ phase: msg.phase, current: msg.current, total: msg.total, label: msg.label });
       } else if (msg.type === 'export-result') {
-        const payload = msg.payload;
+        const payload = { ...msg.payload, team: teamRef.current };
         const highlight = highlightRef.current;
         setProgress({ phase: 'building-bundle', current: 0, total: 1, label: highlight ? 'Annotating frames…' : 'Building bundle…' });
         buildAndDownloadBundle(payload, { highlight })
@@ -201,6 +245,19 @@ function App() {
             setProgress({ phase: 'idle', current: 0, total: 0 });
             showToast('error', `Bundle failed: ${String(err.message || err)}`);
           });
+      } else if (msg.type === 'team-settings') {
+        const { templates: tmpls, defaultTemplateId: defId } = msg.settings;
+        setTemplates(tmpls);
+        setDefaultTemplateId(defId);
+        // Load the default template into the editor; else seed common roles.
+        const def = defId ? tmpls.find((t) => t.id === defId) : undefined;
+        if (def) {
+          setSelectedTemplateId(def.id);
+          setTeam(def.members.length ? def.members.map((m) => ({ ...m })) : seededTeam());
+        } else {
+          setSelectedTemplateId(null);
+          setTeam(seededTeam());
+        }
       } else if (msg.type === 'toast') {
         showToast(msg.level, msg.text);
         if (msg.level !== 'success') setProgress({ phase: 'idle', current: 0, total: 0 });
@@ -241,6 +298,57 @@ function App() {
       selectedPageIds: Array.from(selectedPages),
       exportScale,
     });
+  }
+
+  // ── Team editor + template handlers ──
+  function updateMember(i: number, field: 'role' | 'name', value: string) {
+    setTeam((prev) => prev.map((m, idx) => (idx === i ? { ...m, [field]: value } : m)));
+  }
+  function addMember() {
+    setTeam((prev) => (prev.length >= MAX_TEAM_MEMBERS ? prev : [...prev, { role: '', name: '' }]));
+  }
+  function removeMember(i: number) {
+    setTeam((prev) => prev.filter((_, idx) => idx !== i));
+  }
+  function loadTemplate(id: string) {
+    setSelectedTemplateId(id || null);
+    const t = templates.find((x) => x.id === id);
+    if (t) setTeam(t.members.length ? t.members.map((m) => ({ ...m })) : seededTeam());
+  }
+  function saveCurrent() {
+    // No template selected → behave like Save as.
+    if (!selectedTemplateId) { setSavingAs(true); return; }
+    const next = templates.map((t) => (t.id === selectedTemplateId ? { ...t, members: team } : t));
+    setTemplates(next);
+    persistSettings({ templates: next, defaultTemplateId });
+    showToast('success', 'Template saved');
+  }
+  function confirmSaveAs() {
+    const name = newName.trim();
+    if (!name) return;
+    const t: TeamTemplate = { id: newTemplateId(), name, members: team };
+    const next = [...templates, t];
+    setTemplates(next);
+    setSelectedTemplateId(t.id);
+    persistSettings({ templates: next, defaultTemplateId });
+    setSavingAs(false);
+    setNewName('');
+    showToast('success', `Saved "${name}"`);
+  }
+  function deleteTemplate() {
+    if (!selectedTemplateId) return;
+    const next = templates.filter((t) => t.id !== selectedTemplateId);
+    const nextDefault = defaultTemplateId === selectedTemplateId ? null : defaultTemplateId;
+    setTemplates(next);
+    setDefaultTemplateId(nextDefault);
+    setSelectedTemplateId(null);
+    persistSettings({ templates: next, defaultTemplateId: nextDefault });
+  }
+  function toggleDefault() {
+    if (!selectedTemplateId) return;
+    const nextDefault = defaultTemplateId === selectedTemplateId ? null : selectedTemplateId;
+    setDefaultTemplateId(nextDefault);
+    persistSettings({ templates, defaultTemplateId: nextDefault });
   }
 
   function handleImportFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -394,6 +502,95 @@ function App() {
     );
   }
 
+  // ── Settings / Team view ──
+  if (view === 'settings') {
+    const isDefault = !!selectedTemplateId && selectedTemplateId === defaultTemplateId;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={headerWrap}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Team</div>
+            <button style={refreshBtn} onClick={() => setView('main')}>Done</button>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+            Added as a table at the start of every export. Saved per-user across files.
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {/* Template controls */}
+          <div style={sectionLabel}>Template</div>
+          <div style={{ padding: '4px 12px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <select style={selectStyle} value={selectedTemplateId ?? ''} onChange={(e) => loadTemplate(e.target.value)}>
+              <option value="">Unsaved team…</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}{t.id === defaultTemplateId ? ' ★' : ''}</option>
+              ))}
+            </select>
+
+            {savingAs ? (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  style={{ ...inputStyle, flex: 1 }}
+                  placeholder="Template name"
+                  value={newName}
+                  autoFocus
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') confirmSaveAs();
+                    if (e.key === 'Escape') { setSavingAs(false); setNewName(''); }
+                  }}
+                />
+                <button style={secondaryBtn} onClick={() => { setSavingAs(false); setNewName(''); }}>Cancel</button>
+                <button style={primaryBtnSm} onClick={confirmSaveAs} disabled={!newName.trim()}>Save</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {selectedTemplateId && <button style={secondaryBtn} onClick={saveCurrent}>Save</button>}
+                <button style={secondaryBtn} onClick={() => setSavingAs(true)}>Save as…</button>
+                {selectedTemplateId && (
+                  <button style={secondaryBtn} onClick={toggleDefault} title="Auto-load on open">
+                    {isDefault ? '★ Default' : '☆ Set default'}
+                  </button>
+                )}
+                {selectedTemplateId && <button style={secondaryBtn} onClick={deleteTemplate}>Delete</button>}
+              </div>
+            )}
+          </div>
+
+          {/* Team editor */}
+          <div style={{ ...sectionLabel, display: 'flex', justifyContent: 'space-between' }}>
+            <span>People</span>
+            <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>{team.length} / {MAX_TEAM_MEMBERS}</span>
+          </div>
+          <div style={{ padding: '4px 12px 12px' }}>
+            <div style={{ display: 'flex', gap: 6, fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              <span style={{ flex: 1 }}>Role</span>
+              <span style={{ flex: 1 }}>Name</span>
+              <span style={{ width: 22 }} />
+            </div>
+            {team.map((m, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <input style={{ ...inputStyle, flex: 1 }} placeholder="Role" value={m.role} onChange={(e) => updateMember(i, 'role', e.target.value)} />
+                <input style={{ ...inputStyle, flex: 1 }} placeholder="Name" value={m.name} onChange={(e) => updateMember(i, 'name', e.target.value)} />
+                <button style={removeBtn} onClick={() => removeMember(i)} title="Remove">×</button>
+              </div>
+            ))}
+            <button style={{ ...secondaryBtnFull, marginTop: 4 }} onClick={addMember} disabled={team.length >= MAX_TEAM_MEMBERS}>
+              + Add person
+            </button>
+          </div>
+        </div>
+
+        <div style={footer}>
+          <button style={primaryBtn} onClick={() => setView('main')}>Done</button>
+        </div>
+
+        {toast && <div style={{ ...toastStyle, background: toastBg(toast.level) }}>{toast.text}</div>}
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
@@ -403,12 +600,20 @@ function App() {
           <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
             Select collections containing UX copy strings.
           </div>
-          <button
-            style={refreshBtn}
-            onClick={() => send({ type: 'refresh' })}
-            disabled={isWorking || isImporting}
-            title="Re-scan variables"
-          >Refresh</button>
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <button
+              style={refreshBtn}
+              onClick={() => setView('settings')}
+              disabled={isWorking || isImporting}
+              title="Team settings"
+            >⚙ Team</button>
+            <button
+              style={refreshBtn}
+              onClick={() => send({ type: 'refresh' })}
+              disabled={isWorking || isImporting}
+              title="Re-scan variables"
+            >Refresh</button>
+          </div>
         </div>
       </div>
 
@@ -481,8 +686,11 @@ function App() {
           <div style={footer}>
 
             {/* Export section */}
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
-              {totalSelectedStrings} variable{totalSelectedStrings === 1 ? '' : 's'} selected
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span>{totalSelectedStrings} variable{totalSelectedStrings === 1 ? '' : 's'} selected</span>
+              <button style={linkBtn} onClick={() => setView('settings')}>
+                Team: {team.filter((m) => m.role.trim() || m.name.trim()).length} · Edit
+              </button>
             </div>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer' }}>
@@ -585,6 +793,11 @@ const progressFill: React.CSSProperties = { height: '100%', background: 'var(--a
 const primaryBtn: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid var(--accent, #0d99ff)', background: 'var(--accent, #0d99ff)', color: 'var(--accent-text, #fff)', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 };
 const secondaryBtn: React.CSSProperties = { padding: '7px 12px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', borderRadius: 6, cursor: 'pointer', fontSize: 12 };
 const secondaryBtnFull: React.CSSProperties = { ...secondaryBtn, width: '100%' };
+const primaryBtnSm: React.CSSProperties = { padding: '7px 12px', border: '1px solid var(--accent, #0d99ff)', background: 'var(--accent, #0d99ff)', color: 'var(--accent-text, #fff)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 };
+const inputStyle: React.CSSProperties = { padding: '6px 8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', borderRadius: 6, fontSize: 12, minWidth: 0 };
+const selectStyle: React.CSSProperties = { ...inputStyle, width: '100%', cursor: 'pointer' };
+const removeBtn: React.CSSProperties = { width: 22, height: 22, flexShrink: 0, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 };
+const linkBtn: React.CSSProperties = { border: 'none', background: 'transparent', color: 'var(--accent, #0d99ff)', cursor: 'pointer', fontSize: 11, padding: 0 };
 const divider: React.CSSProperties = { height: 1, background: 'var(--border)', margin: '12px 0' };
 const importPreviewBox: React.CSSProperties = { background: 'var(--bg-secondary)', borderRadius: 6, padding: 10 };
 const importErrorBox: React.CSSProperties = { borderRadius: 6, padding: '6px 8px', fontSize: 11, color: 'var(--danger, #f33)', marginBottom: 8 };

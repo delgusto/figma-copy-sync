@@ -9,13 +9,39 @@ import type {
   ImportUpdate,
   PageInfo,
   PluginToUiMessage,
+  TeamSettings,
   UiToPluginMessage,
   VariableEntry,
 } from './types';
 
 const PLUGIN_DATA_KEY_SELECTION = 'copyCollections';
 const PLUGIN_DATA_KEY_PAGES = 'copyPages';
+// Team templates are a per-user setting (shared across files) → clientStorage.
+const CLIENT_STORAGE_KEY_TEAM = 'copyTeamSettings';
 const SKIP_PREFIX = '[skip]';
+
+const EMPTY_TEAM_SETTINGS: TeamSettings = { templates: [], defaultTemplateId: null };
+
+async function loadTeamSettings(): Promise<void> {
+  let settings = EMPTY_TEAM_SETTINGS;
+  try {
+    const raw = await figma.clientStorage.getAsync(CLIENT_STORAGE_KEY_TEAM);
+    if (raw && typeof raw === 'object' && Array.isArray((raw as TeamSettings).templates)) {
+      settings = raw as TeamSettings;
+    }
+  } catch {
+    // Fall back to empty settings if storage is unreadable.
+  }
+  postToUi({ type: 'team-settings', settings });
+}
+
+async function saveTeamSettings(settings: TeamSettings): Promise<void> {
+  try {
+    await figma.clientStorage.setAsync(CLIENT_STORAGE_KEY_TEAM, settings);
+  } catch {
+    postToUi({ type: 'toast', level: 'error', text: 'Could not save team settings' });
+  }
+}
 
 figma.showUI(__html__, { width: 400, height: 700, themeColors: true });
 
@@ -641,6 +667,14 @@ figma.ui.onmessage = (msg: UiToPluginMessage) => {
   }
   if (msg.type === 'refresh') {
     pushInit();
+    return;
+  }
+  if (msg.type === 'load-team-settings') {
+    loadTeamSettings();
+    return;
+  }
+  if (msg.type === 'save-team-settings') {
+    saveTeamSettings(msg.settings);
     return;
   }
   if (msg.type === 'import') {
