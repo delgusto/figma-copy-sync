@@ -2,10 +2,12 @@ import type { ExportPayload, FramePng, VariableEntry } from '../types';
 
 // HTML table for local viewing of the export bundle.
 //
-// Confluence delivery is handled by strings.xlsx (embedded images via the
-// Confluence Excel macro). This HTML is the local-viewing artefact:
-// open from the unzipped bundle in any browser, screenshots show via
-// relative <img src="frames/x.png"> paths.
+// Confluence delivery is handled by strings.docx (Import Word document)
+// or strings.xlsx (Office Excel macro) — both embed images inline.
+// This HTML is the local-viewing artefact: open from the unzipped bundle
+// in any browser, screenshots show via relative <img src="frames/x.png">
+// paths. Browser HTML paste into Confluence drops images, so do not
+// copy/paste from this file into Confluence.
 //
 // Layout: frame-centric rows.
 //   - Grouped by top-level frame (one group per frame per collection).
@@ -40,7 +42,7 @@ export function buildHtml(payload: ExportPayload): string {
 <body style="${bodyStyle}">
 <h2 style="${h2Style}">${escapeHtml(payload.fileName)} — UX copy</h2>
 <p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} · ${varCount} string${varCount === 1 ? '' : 's'} · ${frameCount} frame${frameCount === 1 ? '' : 's'} · modes: ${payload.modes.map(escapeHtml).join(', ')}</p>
-<p style="${pStyle};color:#888">Open this file from the unzipped bundle to see screenshots. For Confluence, import <code>strings.xlsx</code> instead.</p>
+<p style="${pStyle};color:#888">Open this file from the unzipped bundle to see screenshots. For Confluence, import <code>strings.docx</code> (Word) or <code>strings.xlsx</code> — both embed images inline. Do not copy/paste from this HTML into Confluence; it drops images.</p>
 ${sections.join('\n')}
 </body></html>`;
 }

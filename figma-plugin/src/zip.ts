@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import type { ExportPayload, FramePng } from './types';
 import { buildJson } from './exporters/json';
 import { buildXlsx } from './exporters/xlsx';
+import { buildDocx } from './exporters/docx';
 import { buildHtml } from './exporters/html';
 import { annotateFrameAll, annotateFrameForVariable } from './annotate';
 
@@ -47,10 +48,12 @@ export async function buildAndDownloadBundle(
   // XLSX is the Confluence-friendly artefact — embeds per-variable PNGs inline.
   const html = buildHtml(payload);
   const xlsx = await buildXlsx(payload, perVarBytes);
+  const docx = await buildDocx(payload, perVarBytes);
 
   const zip = new JSZip();
   zip.file('strings.json', buildJson(payload));
   zip.file('strings.xlsx', xlsx);
+  zip.file('strings.docx', docx);
   zip.file('strings.html', html);
 
   const framesDir = zip.folder('frames');
