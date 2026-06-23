@@ -390,12 +390,12 @@ function imageParagraph(
 }
 
 // A labelled interactive Word checkbox (legacy form-field content control).
-// Label sits before the box on the same line; Confluence import turns the box
-// into an action item, so we keep the label adjacent for association.
+// Confluence import always renders the box as a standalone action item on its
+// own line, so the bold label reads as a title directly above its checkbox.
 function checkboxParagraph(label: string): Paragraph {
   return new Paragraph({
     spacing: { after: 40 },
-    children: [new TextRun({ text: `${label} `, size: 18 }), new CheckBox({ checked: false })],
+    children: [new TextRun({ text: label, bold: true, size: 18 }), new CheckBox({ checked: false })],
   });
 }
 
