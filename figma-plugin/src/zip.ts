@@ -62,12 +62,13 @@ export async function buildAndDownloadBundle(
   const xlsx = await buildXlsx(payload, perVarBytes);
   const docx = await buildDocx(payload, perVarBytes, perVarCrop);
 
+  // All exports take the Figma file's name so they're identifiable once extracted.
+  const base = safeFileName(payload.fileName);
   const zip = new JSZip();
-  zip.file('strings.json', buildJson(payload));
-  zip.file('strings.xlsx', xlsx);
-  // DOCX takes the Figma file's name so it's identifiable once extracted.
-  zip.file(`${safeFileName(payload.fileName)}.docx`, docx);
-  zip.file('strings.html', html);
+  zip.file(`${base}.json`, buildJson(payload));
+  zip.file(`${base}.xlsx`, xlsx);
+  zip.file(`${base}.docx`, docx);
+  zip.file(`${base}.html`, html);
 
   const framesDir = zip.folder('frames');
   if (framesDir) {

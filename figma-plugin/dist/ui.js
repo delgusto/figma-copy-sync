@@ -54688,11 +54688,12 @@ ${sections.join("\n")}
     const html = buildHtml(payload);
     const xlsx = await buildXlsx(payload, perVarBytes);
     const docx = await buildDocx(payload, perVarBytes, perVarCrop);
+    const base = safeFileName(payload.fileName);
     const zip = new import_jszip.default();
-    zip.file("strings.json", buildJson(payload));
-    zip.file("strings.xlsx", xlsx);
-    zip.file(`${safeFileName(payload.fileName)}.docx`, docx);
-    zip.file("strings.html", html);
+    zip.file(`${base}.json`, buildJson(payload));
+    zip.file(`${base}.xlsx`, xlsx);
+    zip.file(`${base}.docx`, docx);
+    zip.file(`${base}.html`, html);
     const framesDir = zip.folder("frames");
     if (framesDir) {
       for (const frame of zipFrames) {
