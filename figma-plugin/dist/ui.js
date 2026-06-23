@@ -54435,7 +54435,7 @@
   function checkboxParagraph(label) {
     return new Paragraph({
       spacing: { after: 40 },
-      children: [new CheckBox({ checked: false }), new TextRun({ text: ` ${label}`, size: 18 })]
+      children: [new TextRun({ text: `${label} `, size: 18 }), new CheckBox({ checked: false })]
     });
   }
   function captionParagraph(text) {

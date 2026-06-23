@@ -390,11 +390,12 @@ function imageParagraph(
 }
 
 // A labelled interactive Word checkbox (legacy form-field content control).
-// Survives import into Confluence as a checkbox, per testing.
+// Label sits before the box on the same line; Confluence import turns the box
+// into an action item, so we keep the label adjacent for association.
 function checkboxParagraph(label: string): Paragraph {
   return new Paragraph({
     spacing: { after: 40 },
-    children: [new CheckBox({ checked: false }), new TextRun({ text: ` ${label}`, size: 18 })],
+    children: [new TextRun({ text: `${label} `, size: 18 }), new CheckBox({ checked: false })],
   });
 }
 
