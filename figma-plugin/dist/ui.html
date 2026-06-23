@@ -54722,7 +54722,7 @@ ${sections.join("\n")}
     const zip = new import_jszip.default();
     zip.file("strings.json", buildJson(payload));
     zip.file("strings.xlsx", xlsx);
-    zip.file("strings.docx", docx);
+    zip.file(`${safeFileName(payload.fileName)}.docx`, docx);
     zip.file("strings.html", html);
     const framesDir = zip.folder("frames");
     if (framesDir) {
@@ -54746,8 +54746,10 @@ ${sections.join("\n")}
   }
   function bundleName(payload) {
     const stamp = payload.exportedAt.replace(/[^0-9]/g, "").slice(0, 14);
-    const safeName = payload.fileName.replace(/[^a-zA-Z0-9._\- ]/g, "_").replace(/\s+/g, "_").slice(0, 60) || "figma-file";
-    return `copy-sync-${safeName}-${stamp}.zip`;
+    return `copy-sync-${safeFileName(payload.fileName)}-${stamp}.zip`;
+  }
+  function safeFileName(name) {
+    return name.replace(/[^a-zA-Z0-9._\- ]/g, "_").replace(/\s+/g, "_").slice(0, 60) || "figma-file";
   }
 
   // figma-plugin/src/ui.tsx

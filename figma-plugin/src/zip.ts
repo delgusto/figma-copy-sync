@@ -65,7 +65,8 @@ export async function buildAndDownloadBundle(
   const zip = new JSZip();
   zip.file('strings.json', buildJson(payload));
   zip.file('strings.xlsx', xlsx);
-  zip.file('strings.docx', docx);
+  // DOCX takes the Figma file's name so it's identifiable once extracted.
+  zip.file(`${safeFileName(payload.fileName)}.docx`, docx);
   zip.file('strings.html', html);
 
   const framesDir = zip.folder('frames');
@@ -93,6 +94,10 @@ export async function buildAndDownloadBundle(
 
 function bundleName(payload: ExportPayload): string {
   const stamp = payload.exportedAt.replace(/[^0-9]/g, '').slice(0, 14); // YYYYMMDDHHMMSS
-  const safeName = payload.fileName.replace(/[^a-zA-Z0-9._\- ]/g, '_').replace(/\s+/g, '_').slice(0, 60) || 'figma-file';
-  return `copy-sync-${safeName}-${stamp}.zip`;
+  return `copy-sync-${safeFileName(payload.fileName)}-${stamp}.zip`;
+}
+
+// Filesystem-safe version of the Figma file name (shared by bundle + docx).
+function safeFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._\- ]/g, '_').replace(/\s+/g, '_').slice(0, 60) || 'figma-file';
 }
