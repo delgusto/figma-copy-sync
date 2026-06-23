@@ -42,7 +42,7 @@ export function buildHtml(payload: ExportPayload): string {
 <body style="${bodyStyle}">
 <h2 style="${h2Style}">${escapeHtml(payload.fileName)} — UX copy</h2>
 <p style="${pStyle}">Exported ${escapeHtml(payload.exportedAt)} · ${varCount} string${varCount === 1 ? '' : 's'} · ${frameCount} frame${frameCount === 1 ? '' : 's'} · modes: ${payload.modes.map(escapeHtml).join(', ')}</p>
-<p style="${pStyle};color:#888">Open this file from the unzipped bundle to see screenshots. For Confluence, import <code>strings.docx</code> (Word) or <code>strings.xlsx</code> — both embed images inline. Do not copy/paste from this HTML into Confluence; it drops images.</p>
+<p style="${pStyle};color:#888">Open this file from the unzipped bundle to see screenshots. For Confluence, import the <code>.docx</code> (Word) or <code>.xlsx</code> file in this bundle — both embed images inline. Do not copy/paste from this HTML into Confluence; it drops images.</p>
 ${buildTeamSection(payload.team)}
 ${sections.join('\n')}
 </body></html>`;
